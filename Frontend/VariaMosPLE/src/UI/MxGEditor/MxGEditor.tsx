@@ -169,26 +169,56 @@ export default class MxGEditor extends Component<Props, State> {
   });
 
   me.socket.on('cellAdded', (data) => {
-      if (data.clientId !== me.clientId) {
-          me.isLocalChange = true;
-          data.cells.forEach(cellData => {
-              let parent = me.graph.getDefaultParent();
-              if (cellData.parentId) {
-                  parent = MxgraphUtils.findVerticeById(me.graph, cellData.parentId, null) || parent;
-              }
-              var doc = mx.mxUtils.createXmlDocument();
-              var node = doc.createElement(cellData.type);
-              node.setAttribute("uid", cellData.id);
-              node.setAttribute("label", cellData.label);
-              var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
-              if (vertex && vertex.value) {
+    console.log('Received cellAdded:', data);
+    if (data.clientId !== me.clientId) {
+        me.isLocalChange = true;
+        data.cells.forEach(cellData => {
+            console.log('Processing cell:', cellData);
+
+            // Verificar si el elemento ya existe en el modelo
+            let element = me.props.projectService.findModelElementById(me.currentModel, cellData.id);
+            if (!element) {
+                // Crear y añadir el elemento al modelo si no existe
+                element = {
+                    id: cellData.id,
+                    type: cellData.type,
+                    name: cellData.label,
+                    properties: cellData.properties.map(prop => new Property(
+                        prop.name, prop.value, "", "", "", "", false, false, "", [], [], 0, 0, ""
+                    )),
+                    x: cellData.x,
+                    y: cellData.y,
+                    width: cellData.width,
+                    height: cellData.height,
+                    parentId: null,
+                    instanceOfId: null
+                };
+                me.currentModel.elements.push(element);
+                console.log('Added element to model:', element);
+            } else {
+                console.log('Element already exists in model:', element);
+            }
+
+            // Añadir el vértice al gráfico
+            let parent = me.graph.getDefaultParent();
+            if (cellData.parentId) {
+                parent = MxgraphUtils.findVerticeById(me.graph, cellData.parentId, null) || parent;
+            }
+            var doc = mx.mxUtils.createXmlDocument();
+            var node = doc.createElement(cellData.type);
+            node.setAttribute("uid", cellData.id);
+            node.setAttribute("label", cellData.label);
+            cellData.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
+            var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
+            if (vertex && vertex.value) {
                 me.refreshVertexLabel(vertex);
             }
-          });
-          me.graph.refresh();
-          me.isLocalChange = false;
-      }
-  });
+        });
+        me.graph.refresh();
+        me.isLocalChange = false;
+    }
+});
+
 
   me.socket.on('cellResized', (data) => {
       if (data.clientId !== me.clientId) {
@@ -315,7 +345,7 @@ export default class MxGEditor extends Component<Props, State> {
       evt.consume();
       if (evt.properties.cells) {
           let cell = evt.properties.cells[0];
-          if (!cell.value.attributes) {
+          if (!cell.value || !cell.value.attributes) {
               return;
           }
           let uid = cell.value.getAttribute("uid");
@@ -353,7 +383,7 @@ export default class MxGEditor extends Component<Props, State> {
             }
             for (let i = 0; i < evt.properties.cells.length; i++) {
                 const cell = evt.properties.cells[i];
-                if (!cell.value.attributes) {
+                if (!cell.value || !cell.value.attributes) {
                     return;
                 }
                 let uid = cell.value.getAttribute("uid");
@@ -365,6 +395,8 @@ export default class MxGEditor extends Component<Props, State> {
                         element.y = cell.geometry.y;
                         element.width = cell.geometry.width;
                         element.height = cell.geometry.height;
+                    } else {
+                        console.warn(`Element with UID ${uid} not found in the current model`);
                     }
                 }
             }
@@ -376,7 +408,8 @@ export default class MxGEditor extends Component<Props, State> {
                 width: cell.geometry.width,
                 height: cell.geometry.height,
                 label: cell.value.getAttribute("label"),
-                style: cell.getStyle()
+                style: cell.getStyle(),
+                properties: Array.from(cell.value.attributes).map((attr: any) => ({ name: attr.name, value: attr.value }))
             }));
             me.socket.emit('cellAdded', { clientId: me.clientId, cells });
             console.log('Emitted cellAdded:', { clientId: me.clientId, cells });
@@ -391,7 +424,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
   evt.consume();
   if (evt.properties.cells) {
       let cell = evt.properties.cells[0];
-      if (!cell.value.attributes) {
+      if (!cell.value || !cell.value.attributes) {
           return;
       }
       let uid = cell.value.getAttribute("uid");
