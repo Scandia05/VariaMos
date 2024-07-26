@@ -270,18 +270,26 @@ export default class MxGEditor extends Component<Props, State> {
   });
 
   me.socket.on('cellRemoved', (data) => {
-      if (data.clientId !== me.clientId) {
-          me.isLocalChange = true;
-          data.cellIds.forEach(cellId => {
-              let cell = MxgraphUtils.findVerticeById(me.graph, cellId, null);
-              if (cell) {
-                  me.graph.removeCells([cell], true);
-              }
-          });
-          me.graph.refresh();
-          me.isLocalChange = false;
-      }
-  });
+    console.log('Received cellRemoved:', data);
+    if (data.clientId !== me.clientId) {
+        me.isLocalChange = true;
+        data.cellIds.forEach(cellId => {
+            let cell = MxgraphUtils.findVerticeById(me.graph, cellId, null);
+            if (!cell) {
+                cell = MxgraphUtils.findEdgeById(me.graph, cellId, null);
+            }
+            if (cell) {
+                me.graph.removeCells([cell], true);
+                console.log(`Removed cell/edge with id: ${cellId}`);
+            } else {
+                console.warn(`Cell/Edge with id ${cellId} not found`);
+            }
+        });
+        me.graph.refresh();
+        me.isLocalChange = false;
+    }
+});
+
   }
 
   LoadGraph(graph: mxGraph) {
@@ -419,6 +427,7 @@ export default class MxGEditor extends Component<Props, State> {
     }
 });
   
+
 graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
   if (me.isLocalChange) return;
   evt.consume();
@@ -694,30 +703,31 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
   deleteSelection() {
     let me = this;
     if (!window.confirm("do you really want to delete the items?")) {
-      return;
+        return;
     }
     let graph = this.graph;
     if (graph.isEnabled()) {
-      let cells = graph.getSelectionCells();
-      for (let i = 0; i < cells.length; i++) {
-        const cell = cells[i];
-        if (cell.value) {
-          let uid = cell.value.getAttribute("uid");
-          if (uid) {
-            if (cell.edge) {
-              me.props.projectService.removeModelRelationshipById(me.currentModel, uid);
-            } else {
-              me.props.projectService.removeModelElementById(me.currentModel, uid);
+        let cells = graph.getSelectionCells();
+        let cellIds = cells.map(cell => cell.value.getAttribute("uid"));
+
+        for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            if (cell.value) {
+                let uid = cell.value.getAttribute("uid");
+                if (uid) {
+                    if (cell.edge) {
+                        me.props.projectService.removeModelRelationshipById(me.currentModel, uid);
+                    } else {
+                        me.props.projectService.removeModelElementById(me.currentModel, uid);
+                    }
+                }
             }
-          }
         }
-      }
-      graph.removeCells(cells, true);
-      me.socket.emit('cellRemoved', { clientId: me.clientId, cells });
-      console.log('Emitted cellRemoved:', { clientId: me.clientId, cells });
+        graph.removeCells(cells, true);
+        me.socket.emit('cellRemoved', { clientId: me.clientId, cellIds });
+        console.log('Emitted cellRemoved:', { clientId: me.clientId, cellIds });
     }
-    //MxgraphUtils.deleteSelection(this.graph, this.currentModel);
-  }
+}
 
   refreshEdgeStyle(edge: any) {
     let me = this;
