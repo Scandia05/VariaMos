@@ -174,7 +174,7 @@ export default class MxGEditor extends Component<Props, State> {
         me.isLocalChange = true;
         data.cells.forEach(cellData => {
             console.log('Processing cell:', cellData);
-
+  
             // Verificar si el elemento ya existe en el modelo
             let element = me.props.projectService.findModelElementById(me.currentModel, cellData.id);
             if (!element) {
@@ -198,7 +198,7 @@ export default class MxGEditor extends Component<Props, State> {
             } else {
                 console.log('Element already exists in model:', element);
             }
-
+  
             // Añadir el vértice al gráfico
             let parent = me.graph.getDefaultParent();
             if (cellData.parentId) {
@@ -207,7 +207,7 @@ export default class MxGEditor extends Component<Props, State> {
             var doc = mx.mxUtils.createXmlDocument();
             var node = doc.createElement(cellData.type);
             node.setAttribute("uid", cellData.id);
-            node.setAttribute("label", cellData.label);
+            node.setAttribute("label", cellData.properties.find(prop => prop.name === 'type')?.value || cellData.label);
             cellData.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
             var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
             if (vertex && vertex.value) {
@@ -217,8 +217,7 @@ export default class MxGEditor extends Component<Props, State> {
         me.graph.refresh();
         me.isLocalChange = false;
     }
-});
-
+  });
 
   me.socket.on('cellResized', (data) => {
       if (data.clientId !== me.clientId) {
@@ -237,22 +236,35 @@ export default class MxGEditor extends Component<Props, State> {
   });
 
   me.socket.on('cellConnected', (data) => {
-      if (data.clientId !== me.clientId) {
-          me.isLocalChange = true;
-          let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
-          let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
-          if (source && target) {
-              var doc = mx.mxUtils.createXmlDocument();
-              var node = doc.createElement("relationship");
-              node.setAttribute("uid", data.relationshipId);
-              node.setAttribute("label", data.relationshipName);
-              let edge = me.graph.insertEdge(me.graph.getDefaultParent(), null, node, source, target);
-              me.graph.getModel().setStyle(edge, data.style);
-              me.graph.refresh();
-          }
-          me.isLocalChange = false;
-      }
-  });
+    console.log('Received cellConnected:', data);
+    if (data.clientId !== me.clientId) {
+        me.isLocalChange = true;
+        let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
+        let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
+        if (source && target) {
+            // Verificar si la conexión ya existe para evitar duplicación
+            let existingEdge = me.graph.getModel().getEdgesBetween(source, target, false);
+            if (existingEdge.length > 0) {
+                console.warn("Edge already exists between source and target. Skipping creation.");
+                me.isLocalChange = false;
+                return;
+            }
+
+            var doc = mx.mxUtils.createXmlDocument();
+            var node = doc.createElement("relationship");
+            node.setAttribute("uid", data.relationshipId);
+            node.setAttribute("label", data.relationshipName);
+            data.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
+            let edge = me.graph.insertEdge(me.graph.getDefaultParent(), null, node, source, target);
+            me.graph.getModel().setStyle(edge, data.style);
+            me.graph.refresh();
+        } else {
+            console.warn("Source or target cell not found in the graph.");
+        }
+        me.isLocalChange = false;
+    }
+});
+
 
   me.socket.on('labelChanged', (data) => {
       if (data.clientId !== me.clientId) {
@@ -289,6 +301,69 @@ export default class MxGEditor extends Component<Props, State> {
         me.isLocalChange = false;
     }
 });
+
+me.socket.on('propertiesChanged', (data) => {
+  console.log('Received propertiesChanged:', data);
+  if (data.clientId !== me.clientId) {
+      me.isLocalChange = true;
+      let cell = MxgraphUtils.findVerticeById(me.graph, data.cellId, null);
+      if (!cell) {
+          cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
+      }
+      if (cell) {
+          // Actualizar las propiedades del modelo
+          let element = me.props.projectService.findModelElementById(me.currentModel, data.cellId);
+          if (!element) {
+              element = me.props.projectService.findModelRelationshipById(me.currentModel, data.cellId);
+          }
+          if (element) {
+              data.properties.forEach(prop => {
+                  let property = element.properties.find(p => p.name === prop.name);
+                  if (property) {
+                      property.value = prop.value;
+                      property.type = prop.type;
+                      property.options = prop.options;
+                      property.linked_property = prop.linked_property;
+                      property.linked_value = prop.linked_value;
+                      property.display = prop.display;
+                      property.comment = prop.comment;
+                      property.possibleValues = prop.possibleValues;
+                      property.possibleValuesLinks = prop.possibleValuesLinks;
+                      property.minCardinality = prop.minCardinality;
+                      property.maxCardinality = prop.maxCardinality;
+                      property.constraint = prop.constraint;
+                  } else {
+                    element.properties.push(new Property(
+                      prop.name, 
+                      prop.value, 
+                      prop.type, 
+                      prop.options, 
+                      prop.linked_property, 
+                      prop.linked_value, 
+                      false, // nuevo argumento que falta
+                      prop.display, 
+                      prop.comment, 
+                      prop.possibleValues, 
+                      prop.possibleValuesLinks, 
+                      prop.minCardinality, 
+                      prop.maxCardinality, 
+                      prop.constraint
+                  ));
+                  }
+                  cell.value.setAttribute(prop.name, prop.value);
+              });
+              // Refrescar la vista del gráfico
+              me.refreshVertexLabel(cell);
+              me.graph.refresh();
+              if (me.state.selectedObject && me.state.selectedObject.id === element.id) {
+                  me.setState({ selectedObject: element });
+              }
+          }
+      }
+      me.isLocalChange = false;
+  }
+});
+
 
   }
 
@@ -425,9 +500,8 @@ export default class MxGEditor extends Component<Props, State> {
     } catch (error) {
         me.processException(error);
     }
-});
+  });
   
-
 graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
   if (me.isLocalChange) return;
   evt.consume();
@@ -536,6 +610,12 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
           let edge = evt.getProperty("edge");
           let source = edge.source;
           let target = edge.target;
+  
+          if (!source || !target || !source.value || !target.value) {
+              console.warn("Source or target is null or has no value. Skipping cellConnected event.");
+              return;
+          }
+  
           let name = source.value.getAttribute("label") + "_" + target.value.getAttribute("label");
           let relationshipType = null;
   
@@ -603,13 +683,21 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
           me.refreshEdgeLabel(edge);
           me.refreshEdgeStyle(edge);
   
+          // Conversion explícita de attributes a NamedNodeMap y luego a Attr[]
+          let attributes = Array.from(edge.value.attributes) as Attr[];
+          let edgeAttributes = attributes.map(attr => ({
+              name: attr.name,
+              value: attr.value
+          }));
+  
           me.socket.emit('cellConnected', {
               clientId: me.clientId,
               sourceId: source.value.getAttribute("uid"),
               targetId: target.value.getAttribute("uid"),
               relationshipId: edge.value.getAttribute("uid"),
               relationshipName: edge.value.getAttribute("label"),
-              style: edge.getStyle()
+              style: edge.getStyle(),
+              properties: edgeAttributes
           });
           console.log('Emitted cellConnected:', {
               clientId: me.clientId,
@@ -617,7 +705,8 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
               targetId: target.value.getAttribute("uid"),
               relationshipId: edge.value.getAttribute("uid"),
               relationshipName: edge.value.getAttribute("label"),
-              style: edge.getStyle()
+              style: edge.getStyle(),
+              properties: edgeAttributes
           });
       } catch (error) {
           console.error("something went wrong: ", error);
@@ -889,7 +978,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
         return;
     }
 
-    vertice.value.setAttribute("Name", element.name);
+    vertice.value.setAttribute("Name", element.properties.find(prop => prop.name === 'type')?.value || element.name);
     for (let i = 0; i < element.properties.length; i++) {
         const p = element.properties[i];
         vertice.value.setAttribute(p.name, p.value);
@@ -913,7 +1002,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
         }
     }
     if (!label_property) {
-        vertice.value.setAttribute("label", element.name);
+        vertice.value.setAttribute("label", element.properties.find(prop => prop.name === 'type')?.value || element.name);
     } else {
         vertice.value.setAttribute("label", "");
     }
@@ -1365,6 +1454,25 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
 
   hidePropertiesModal() { 
     this.setState({ showPropertiesModal: false });
+    if (this.state.selectedObject) {
+        let properties = this.state.selectedObject.properties.map(prop => ({
+            name: prop.name, 
+            value: prop.value, 
+            type: prop.type,
+            options: prop.options,
+            linked_property: prop.linked_property,
+            linked_value: prop.linked_value,
+            display: prop.display,
+            comment: prop.comment,
+            possibleValues: prop.possibleValues,
+            possibleValuesLinks: prop.possibleValuesLinks,
+            minCardinality: prop.minCardinality,
+            maxCardinality: prop.maxCardinality,
+            constraint: prop.constraint
+        }));
+        this.socket.emit('propertiesChanged', { clientId: this.clientId, cellId: this.state.selectedObject.id, properties });
+        console.log('Emitted propertiesChanged:', { clientId: this.clientId, cellId: this.state.selectedObject.id, properties });
+    }
     for (let i = 0; i < this.props.projectService.externalFunctions.length; i++) {
       const efunction = this.props.projectService.externalFunctions[i];
       if (efunction.id == 510 || efunction.id == 511) { //todo: validar por el campo call_on_properties_changed
@@ -1373,6 +1481,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
       }
     }
   }
+  
 
   savePropertiesModal() {
     // if (this.currentModel) {

@@ -69,6 +69,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('cellResized', data);
   });
 
+  socket.on('propertiesChanged', (data) => {
+    console.log('propertiesChanged received:', data);
+    socket.broadcast.emit('propertiesChanged', data);
+  });
+
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
   });
