@@ -56,7 +56,7 @@ export default class MxGEditor extends Component<Props, State> {
       contextMenuY: 0,
       selectedObject: null
     }
-    this.socket = io('http://localhost:4000');
+    this.socket = io('http://200.13.4.230:4000');
     this.clientId = this.props.projectService.getClientId();
     this.projectService_addNewProductLineListener = this.projectService_addNewProductLineListener.bind(this);
     this.projectService_addSelectedModelListener = this.projectService_addSelectedModelListener.bind(this);

@@ -92,7 +92,7 @@ export default class ProjectService {
   // }
 
   constructor() {
-    this.socket = io('http://localhost:4000');
+    this.socket = io('http://200.13.4.230:4000');
     this.clientId = uuidv4();
 
     this.socket.on('connect', () => {

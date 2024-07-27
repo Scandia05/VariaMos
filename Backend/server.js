@@ -8,7 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "http://200.13.4.230:3000",
     methods: ["GET", "POST"]
   }
 });
@@ -85,6 +85,6 @@ socket.on('disconnect', () => {
 });
 
 const PORT = 4000;
-server.listen(PORT, () => {
+server.listen(PORT,'0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 });
