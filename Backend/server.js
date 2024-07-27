@@ -74,9 +74,14 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('propertiesChanged', data);
   });
 
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
-  });
+  socket.on('cursorMoved', (data) => {
+    socket.broadcast.emit('cursorMoved', data);
+});
+
+socket.on('disconnect', () => {
+  socket.broadcast.emit('userDisconnected', { clientId: socket.id });
+});
+
 });
 
 const PORT = 4000;

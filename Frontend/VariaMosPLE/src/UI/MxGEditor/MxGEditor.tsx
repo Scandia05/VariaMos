@@ -152,6 +152,29 @@ export default class MxGEditor extends Component<Props, State> {
       this.projectService_addUpdateProjectListener
     );
 
+    this.graphContainerRef.current.addEventListener('mousemove', (e) => {
+      if (this.clientId) {
+          this.socket.emit('cursorMoved', {
+              clientId: this.clientId,
+              x: e.clientX,
+              y: e.clientY
+          });
+      }
+  });
+
+  this.socket.on('userDisconnected', (data) => {
+    let cursor = document.getElementById(`cursor-${data.clientId}`);
+    let cursorLabel = document.getElementById(`cursor-label-${data.clientId}`);
+    if (cursor) {
+        cursor.remove();
+    }
+    if (cursorLabel) {
+        cursorLabel.remove();
+    }
+});
+
+
+
     me.socket.on('cellMoved', (data) => {
       if (data.clientId !== me.clientId) {
           me.isLocalChange = true;
@@ -364,8 +387,52 @@ me.socket.on('propertiesChanged', (data) => {
   }
 });
 
+this.socket.on('cursorMoved', (data) => {
+  if (data.clientId !== this.clientId) {
+      this.updateCursor(data.clientId, data.x, data.y);
+  }
+});
 
   }
+
+  updateCursor(clientId, x, y) {
+    // Crear o actualizar la posición del cursor del usuario
+    let cursor = document.getElementById(`cursor-${clientId}`);
+    let cursorLabel = document.getElementById(`cursor-label-${clientId}`);
+    
+    if (!cursor) {
+        cursor = document.createElement('div');
+        cursor.id = `cursor-${clientId}`;
+        cursor.style.position = 'absolute';
+        cursor.style.width = '10px';
+        cursor.style.height = '10px';
+        cursor.style.backgroundColor = 'red';
+        cursor.style.borderRadius = '50%';
+        cursor.style.zIndex = '1000';
+        cursor.style.pointerEvents = 'none';
+
+        cursorLabel = document.createElement('span');
+        cursorLabel.id = `cursor-label-${clientId}`;
+        cursorLabel.style.position = 'absolute';
+        cursorLabel.style.backgroundColor = 'white';
+        cursorLabel.style.border = '1px solid black';
+        cursorLabel.style.borderRadius = '3px';
+        cursorLabel.style.padding = '2px';
+        cursorLabel.style.fontSize = '10px';
+        cursorLabel.style.zIndex = '1000';
+        cursorLabel.style.pointerEvents = 'none';
+        cursorLabel.innerText = clientId;
+
+        document.body.appendChild(cursor);
+        document.body.appendChild(cursorLabel);
+    }
+    
+    cursor.style.left = `${x}px`;
+    cursor.style.top = `${y}px`;
+
+    cursorLabel.style.left = `${x + 15}px`;
+    cursorLabel.style.top = `${y - 10}px`;
+}
 
   LoadGraph(graph: mxGraph) {
     let me = this;
