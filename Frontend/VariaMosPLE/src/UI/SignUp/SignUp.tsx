@@ -45,20 +45,20 @@ function SignInUp() {
     const stringifiedUserProfile = JSON.stringify(userProfile);
     sessionStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedUserProfile);
     localStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedUserProfile); // Copying the value to LocalStorage to share it between microfrontends
-
+  
     setLoginProgress(SignUpMessages.Loading);
-
-    let url=`${Config.SERVICES.urlBackEndLanguage}${SignUpURLs.SignIn}`;
-
+  
+    let url = `${Config.SERVICES.urlBackEndLanguage}${SignUpURLs.SignIn}`;
+  
     axios.post(url, {
       email: userProfile.email,
       name: userProfile.givenName
     }).then(({ data: responseData }) => {
       const { data } = responseData;
       const stringifiedData = JSON.stringify(data);
-      sessionStorage.setItem(SignUpKeys.DataBaseUserProfile, stringifiedData)
-      localStorage.setItem(SignUpKeys.DataBaseUserProfile, stringifiedData) // Copying the value to LocalStorage to share it between microfrontends
-
+      sessionStorage.setItem(SignUpKeys.DataBaseUserProfile, stringifiedData);
+      localStorage.setItem(SignUpKeys.DataBaseUserProfile, stringifiedData); // Copying the value to LocalStorage to share it between microfrontends
+  
       if (response && response.accessToken) {
         window.location.href = SignUpURLs.Dashboard;
       }
@@ -67,7 +67,7 @@ function SignInUp() {
       setLoginProgress(SignUpMessages.LoginError);
     })
   };
-
+  
   const onFailure = response => {
     console.log('FAILED', response);
   };
