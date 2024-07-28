@@ -19,6 +19,7 @@ import Dropdown from 'react-bootstrap/Dropdown';
 import MxProperties from "../MxProperties/MxProperties";
 import * as alertify from "alertifyjs";
 import io from 'socket.io-client';
+import { SignUpKeys } from '../SignUp/SignUp.constants';
 
 interface Props {
   projectService: ProjectService;
@@ -42,6 +43,7 @@ export default class MxGEditor extends Component<Props, State> {
   private socket: any;
   private clientId: string;
   private isLocalChange: boolean = false;
+  private userName: string; // Añadir la propiedad userName
 
   constructor(props: Props) {
     super(props);
@@ -57,7 +59,11 @@ export default class MxGEditor extends Component<Props, State> {
       selectedObject: null
     }
     this.socket = io('http://200.13.4.230:4000');
+
+    const userProfile = JSON.parse(sessionStorage.getItem(SignUpKeys.CurrentUserProfile) || localStorage.getItem(SignUpKeys.CurrentUserProfile) || '{}');
     this.clientId = this.props.projectService.getClientId();
+    this.userName = userProfile.givenName ? userProfile.givenName : this.clientId; // Asigna el nombre del usuario o el clientId si no está disponible
+
     this.projectService_addNewProductLineListener = this.projectService_addNewProductLineListener.bind(this);
     this.projectService_addSelectedModelListener = this.projectService_addSelectedModelListener.bind(this);
     this.projectService_addCreatedElementListener = this.projectService_addCreatedElementListener.bind(this);
@@ -154,13 +160,14 @@ export default class MxGEditor extends Component<Props, State> {
 
     this.graphContainerRef.current.addEventListener('mousemove', (e) => {
       if (this.clientId) {
-          this.socket.emit('cursorMoved', {
-              clientId: this.clientId,
-              x: e.clientX,
-              y: e.clientY
-          });
+        this.socket.emit('cursorMoved', {
+          clientId: this.clientId,
+          userName: this.userName, // Emitir el nombre del usuario
+          x: e.clientX,
+          y: e.clientY
+        });
       }
-  });
+    });
 
   this.socket.on('userDisconnected', (data) => {
     let cursor = document.getElementById(`cursor-${data.clientId}`);
@@ -389,50 +396,51 @@ me.socket.on('propertiesChanged', (data) => {
 
 this.socket.on('cursorMoved', (data) => {
   if (data.clientId !== this.clientId) {
-      this.updateCursor(data.clientId, data.x, data.y);
+    this.updateCursor(data.clientId, data.userName, data.x, data.y);
   }
 });
 
-  }
+}
 
-  updateCursor(clientId, x, y) {
+  updateCursor(clientId, userName, x, y) {
     // Crear o actualizar la posición del cursor del usuario
     let cursor = document.getElementById(`cursor-${clientId}`);
     let cursorLabel = document.getElementById(`cursor-label-${clientId}`);
     
     if (!cursor) {
-        cursor = document.createElement('div');
-        cursor.id = `cursor-${clientId}`;
-        cursor.style.position = 'absolute';
-        cursor.style.width = '10px';
-        cursor.style.height = '10px';
-        cursor.style.backgroundColor = 'red';
-        cursor.style.borderRadius = '50%';
-        cursor.style.zIndex = '1000';
-        cursor.style.pointerEvents = 'none';
-
-        cursorLabel = document.createElement('span');
-        cursorLabel.id = `cursor-label-${clientId}`;
-        cursorLabel.style.position = 'absolute';
-        cursorLabel.style.backgroundColor = 'white';
-        cursorLabel.style.border = '1px solid black';
-        cursorLabel.style.borderRadius = '3px';
-        cursorLabel.style.padding = '2px';
-        cursorLabel.style.fontSize = '10px';
-        cursorLabel.style.zIndex = '1000';
-        cursorLabel.style.pointerEvents = 'none';
-        cursorLabel.innerText = clientId;
-
-        document.body.appendChild(cursor);
-        document.body.appendChild(cursorLabel);
+      cursor = document.createElement('div');
+      cursor.id = `cursor-${clientId}`;
+      cursor.style.position = 'absolute';
+      cursor.style.width = '10px';
+      cursor.style.height = '10px';
+      cursor.style.backgroundColor = 'red';
+      cursor.style.borderRadius = '50%';
+      cursor.style.zIndex = '1000';
+      cursor.style.pointerEvents = 'none';
+  
+      cursorLabel = document.createElement('span');
+      cursorLabel.id = `cursor-label-${clientId}`;
+      cursorLabel.style.position = 'absolute';
+      cursorLabel.style.backgroundColor = 'white';
+      cursorLabel.style.border = '1px solid black';
+      cursorLabel.style.borderRadius = '3px';
+      cursorLabel.style.padding = '2px';
+      cursorLabel.style.fontSize = '10px';
+      cursorLabel.style.zIndex = '1000';
+      cursorLabel.style.pointerEvents = 'none';
+      cursorLabel.innerText = userName; // Mostrar el nombre del usuario
+  
+      document.body.appendChild(cursor);
+      document.body.appendChild(cursorLabel);
     }
     
     cursor.style.left = `${x}px`;
     cursor.style.top = `${y}px`;
-
+  
     cursorLabel.style.left = `${x + 15}px`;
     cursorLabel.style.top = `${y - 10}px`;
-}
+  }
+  
 
   LoadGraph(graph: mxGraph) {
     let me = this;
