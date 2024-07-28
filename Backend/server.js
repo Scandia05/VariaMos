@@ -13,11 +13,20 @@ const io = socketIo(server, {
   }
 });
 
+let guestCounter = 1;
+const guests = {};
+
 app.use(cors());
 app.use(express.json());
 
 io.on('connection', (socket) => {
   console.log(`New client connected: ${socket.id}`);
+
+  socket.on('signUpAsGuest', () => {
+    const guestId = guestCounter++;
+    guests[socket.id] = guestId;
+    socket.emit('guestIdAssigned', { guestId });
+});
 
   socket.on('modelCreated', (data) => {
     console.log(`Model created by ${data.clientId}`);
@@ -79,7 +88,7 @@ io.on('connection', (socket) => {
 });
 
 socket.on('disconnect', () => {
-  socket.broadcast.emit('userDisconnected', { clientId: socket.id });
+  delete guests[socket.id];
 });
 
 });
