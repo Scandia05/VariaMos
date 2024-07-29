@@ -204,18 +204,15 @@ export default class MxGEditor extends Component<Props, State> {
         me.isLocalChange = true;
         data.cells.forEach(cellData => {
             console.log('Processing cell:', cellData);
-  
-            // Verificar si el elemento ya existe en el modelo
+
+            // Crear y añadir el elemento al modelo si no existe
             let element = me.props.projectService.findModelElementById(me.currentModel, cellData.id);
             if (!element) {
-                // Crear y añadir el elemento al modelo si no existe
                 element = {
                     id: cellData.id,
                     type: cellData.type,
                     name: cellData.label,
-                    properties: cellData.properties.map(prop => new Property(
-                        prop.name, prop.value, "", "", "", "", false, false, "", [], [], 0, 0, ""
-                    )),
+                    properties: [], // No asignar propiedades aquí
                     x: cellData.x,
                     y: cellData.y,
                     width: cellData.width,
@@ -228,7 +225,7 @@ export default class MxGEditor extends Component<Props, State> {
             } else {
                 console.log('Element already exists in model:', element);
             }
-  
+
             // Añadir el vértice al gráfico
             let parent = me.graph.getDefaultParent();
             if (cellData.parentId) {
@@ -237,8 +234,7 @@ export default class MxGEditor extends Component<Props, State> {
             var doc = mx.mxUtils.createXmlDocument();
             var node = doc.createElement(cellData.type);
             node.setAttribute("uid", cellData.id);
-            node.setAttribute("label", cellData.properties.find(prop => prop.name === 'type')?.value || cellData.label);
-            cellData.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
+            node.setAttribute("label", cellData.label); // Asignar el label recibido
             var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
             if (vertex && vertex.value) {
                 me.refreshVertexLabel(vertex);
@@ -247,23 +243,7 @@ export default class MxGEditor extends Component<Props, State> {
         me.graph.refresh();
         me.isLocalChange = false;
     }
-  });
-
-  me.socket.on('cellResized', (data) => {
-      if (data.clientId !== me.clientId) {
-          me.isLocalChange = true;
-          let cell = MxgraphUtils.findVerticeById(me.graph, data.uid, null);
-          if (cell) {
-              cell.geometry.x = data.x;
-              cell.geometry.y = data.y;
-              cell.geometry.width = data.width;
-              cell.geometry.height = data.height;
-              me.graph.getModel().setStyle(cell, data.style);
-              me.graph.refresh();
-          }
-          me.isLocalChange = false;
-      }
-  });
+});
 
   me.socket.on('cellConnected', (data) => {
     console.log('Received cellConnected:', data);
@@ -294,22 +274,6 @@ export default class MxGEditor extends Component<Props, State> {
         me.isLocalChange = false;
     }
 });
-
-
-  me.socket.on('labelChanged', (data) => {
-      if (data.clientId !== me.clientId) {
-          me.isLocalChange = true;
-          let cell = MxgraphUtils.findVerticeById(me.graph, data.uid, null);
-          if (cell) {
-              cell.value.setAttribute("label", data.name);
-              if (cell.value) {
-                me.refreshVertexLabel(cell);
-            }
-              me.graph.refresh();
-          }
-          me.isLocalChange = false;
-      }
-  });
 
   me.socket.on('cellRemoved', (data) => {
     console.log('Received cellRemoved:', data);
@@ -351,37 +315,18 @@ me.socket.on('propertiesChanged', (data) => {
                   let property = element.properties.find(p => p.name === prop.name);
                   if (property) {
                       property.value = prop.value;
-                      property.type = prop.type;
-                      property.options = prop.options;
-                      property.linked_property = prop.linked_property;
-                      property.linked_value = prop.linked_value;
-                      property.display = prop.display;
-                      property.comment = prop.comment;
-                      property.possibleValues = prop.possibleValues;
-                      property.possibleValuesLinks = prop.possibleValuesLinks;
-                      property.minCardinality = prop.minCardinality;
-                      property.maxCardinality = prop.maxCardinality;
-                      property.constraint = prop.constraint;
                   } else {
-                    element.properties.push(new Property(
-                      prop.name, 
-                      prop.value, 
-                      prop.type, 
-                      prop.options, 
-                      prop.linked_property, 
-                      prop.linked_value, 
-                      false, // nuevo argumento que falta
-                      prop.display, 
-                      prop.comment, 
-                      prop.possibleValues, 
-                      prop.possibleValuesLinks, 
-                      prop.minCardinality, 
-                      prop.maxCardinality, 
-                      prop.constraint
-                  ));
+                      element.properties.push(new Property(
+                          prop.name, prop.value, prop.type, prop.options, prop.linked_property, prop.linked_value, false, prop.display, prop.comment, prop.possibleValues, prop.possibleValuesLinks, prop.minCardinality, prop.maxCardinality, prop.constraint
+                      ));
                   }
                   cell.value.setAttribute(prop.name, prop.value);
               });
+              // Actualizar el nombre del elemento si se ha cambiado
+              let nameProp = data.properties.find(prop => prop.name === 'name');
+              if (nameProp) {
+                  element.name = nameProp.value;
+              }
               // Refrescar la vista del gráfico
               me.refreshVertexLabel(cell);
               me.graph.refresh();
@@ -566,7 +511,7 @@ this.socket.on('cursorMoved', (data) => {
                 height: cell.geometry.height,
                 label: cell.value.getAttribute("label"),
                 style: cell.getStyle(),
-                properties: Array.from(cell.value.attributes).map((attr: any) => ({ name: attr.name, value: attr.value }))
+                properties: [] // No incluir propiedades aquí
             }));
             me.socket.emit('cellAdded', { clientId: me.clientId, cells });
             console.log('Emitted cellAdded:', { clientId: me.clientId, cells });
@@ -574,7 +519,8 @@ this.socket.on('cursorMoved', (data) => {
     } catch (error) {
         me.processException(error);
     }
-  });
+});
+
   
 graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
   if (me.isLocalChange) return;
@@ -804,32 +750,35 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
     });
 
     graph.addListener(mx.mxEvent.LABEL_CHANGED, function (sender, evt) {
-       if (me.isLocalChange) return;
+      let t = 0;
       let name = evt.properties.value;
       evt.properties.value = evt.properties.old;
       evt.properties.cell.value = evt.properties.old;
       evt.consume();
-  
+
       let cell = evt.properties.cell;
       let uid = cell.value.getAttribute("uid");
       if (me.currentModel) {
-          const element: any = me.props.projectService.findModelElementById(me.currentModel, uid);
-          if (element) {
-              element.name = name;
-              me.props.projectService.raiseEventUpdatedElement(me.currentModel, element);
-          } else {
-              const relationship: any = me.props.projectService.findModelRelationshipById(me.currentModel, uid);
-              if (relationship) {
-                  relationship.name = name;
-                  me.props.projectService.raiseEventUpdatedElement(me.currentModel, relationship);
-              }
+        const element: any = me.props.projectService.findModelElementById(me.currentModel, uid);
+        if (element) {
+          element.name = name;
+          me.props.projectService.raiseEventUpdatedElement(
+            me.currentModel,
+            element
+          );
+        } else {
+          const relationship: any = me.props.projectService.findModelRelationshipById(me.currentModel, uid);
+          if (relationship) {
+            relationship.name = name;
+            me.props.projectService.raiseEventUpdatedElement(
+              me.currentModel,
+              relationship
+            );
           }
+        }
       }
-      me.socket.emit('labelChanged', { clientId: me.clientId, uid, name });
-      console.log('Emitted labelChanged:', { clientId: me.clientId, uid, name });
-  });
+    });
   
-
     graph.addListener(mx.mxEvent.CHANGE, function (sender, evt) {
       try {
         evt.consume();
@@ -1052,7 +1001,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
         return;
     }
 
-    vertice.value.setAttribute("Name", element.properties.find(prop => prop.name === 'type')?.value || element.name);
+    vertice.value.setAttribute("Name", element.name);
     for (let i = 0; i < element.properties.length; i++) {
         const p = element.properties[i];
         vertice.value.setAttribute(p.name, p.value);
@@ -1076,7 +1025,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
         }
     }
     if (!label_property) {
-        vertice.value.setAttribute("label", element.properties.find(prop => prop.name === 'type')?.value || element.name);
+        vertice.value.setAttribute("label", element.name);
     } else {
         vertice.value.setAttribute("label", "");
     }
@@ -1526,12 +1475,12 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
     this.setState({ showPropertiesModal: true });
   }
 
-  hidePropertiesModal() { 
+  hidePropertiesModal() {
     this.setState({ showPropertiesModal: false });
     if (this.state.selectedObject) {
         let properties = this.state.selectedObject.properties.map(prop => ({
-            name: prop.name, 
-            value: prop.value, 
+            name: prop.name,
+            value: prop.value,
             type: prop.type,
             options: prop.options,
             linked_property: prop.linked_property,
@@ -1548,14 +1497,13 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
         console.log('Emitted propertiesChanged:', { clientId: this.clientId, cellId: this.state.selectedObject.id, properties });
     }
     for (let i = 0; i < this.props.projectService.externalFunctions.length; i++) {
-      const efunction = this.props.projectService.externalFunctions[i];
-      if (efunction.id == 510 || efunction.id == 511) { //todo: validar por el campo call_on_properties_changed
-        let selectedElementsIds = [this.state.selectedObject.id];
-        this.callExternalFuntionFromIndex(i, selectedElementsIds, null);
-      }
+        const efunction = this.props.projectService.externalFunctions[i];
+        if (efunction.id == 510 || efunction.id == 511) {
+            let selectedElementsIds = [this.state.selectedObject.id];
+            this.callExternalFuntionFromIndex(i, selectedElementsIds, null);
+        }
     }
-  }
-  
+}
 
   savePropertiesModal() {
     // if (this.currentModel) {
