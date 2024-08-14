@@ -180,8 +180,6 @@ export default class MxGEditor extends Component<Props, State> {
     }
 });
 
-
-
     me.socket.on('cellMoved', (data) => {
       if (data.clientId !== me.clientId) {
           me.isLocalChange = true;
@@ -198,6 +196,30 @@ export default class MxGEditor extends Component<Props, State> {
       }
   });
 
+  me.socket.on('cellConnected', (data) => {
+    if (data.clientId !== me.clientId) {
+        me.isLocalChange = true;
+        let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
+        let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
+        if (source && target) {
+            let existingEdge = me.graph.getModel().getEdgesBetween(source, target, false);
+            if (existingEdge.length === 0) {
+                var doc = mx.mxUtils.createXmlDocument();
+                var node = doc.createElement("relationship");
+                node.setAttribute("uid", data.relationshipId);
+                node.setAttribute("label", data.relationshipName);
+                // Asigna las propiedades recibidas
+                data.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
+                let edge = me.graph.insertEdge(me.graph.getDefaultParent(), null, node, source, target);
+                me.graph.getModel().setStyle(edge, data.style);
+                me.graph.refresh();
+            }
+        }
+        me.isLocalChange = false;
+    }
+});
+
+
   me.socket.on('cellAdded', (data) => {
     console.log('Received cellAdded:', data);
     if (data.clientId !== me.clientId) {
@@ -205,72 +227,59 @@ export default class MxGEditor extends Component<Props, State> {
         data.cells.forEach(cellData => {
             console.log('Processing cell:', cellData);
 
-            // Crear y añadir el elemento al modelo si no existe
-            let element = me.props.projectService.findModelElementById(me.currentModel, cellData.id);
-            if (!element) {
-                element = {
-                    id: cellData.id,
-                    type: cellData.type,
-                    name: cellData.label,
-                    properties: [], // No asignar propiedades aquí
-                    x: cellData.x,
-                    y: cellData.y,
-                    width: cellData.width,
-                    height: cellData.height,
-                    parentId: null,
-                    instanceOfId: null
-                };
-                me.currentModel.elements.push(element);
-                console.log('Added element to model:', element);
-            } else {
-                console.log('Element already exists in model:', element);
-            }
+            // Verificar si es un vértice (elemento)
+            if (cellData.type !== 'relationship') {
+                let element = me.props.projectService.findModelElementById(me.currentModel, cellData.id);
+                if (!element) {
+                    element = {
+                        id: cellData.id,
+                        type: cellData.type,
+                        name: cellData.label,
+                        properties: [], // No asignar propiedades aquí
+                        x: cellData.x,
+                        y: cellData.y,
+                        width: cellData.width,
+                        height: cellData.height,
+                        parentId: null,
+                        instanceOfId: null
+                    };
+                    me.currentModel.elements.push(element);
+                    console.log('Added element to model:', element);
+                } else {
+                    console.log('Element already exists in model:', element);
+                }
 
-            // Añadir el vértice al gráfico
-            let parent = me.graph.getDefaultParent();
-            if (cellData.parentId) {
-                parent = MxgraphUtils.findVerticeById(me.graph, cellData.parentId, null) || parent;
-            }
-            var doc = mx.mxUtils.createXmlDocument();
-            var node = doc.createElement(cellData.type);
-            node.setAttribute("uid", cellData.id);
-            node.setAttribute("label", cellData.label); // Asignar el label recibido
-            var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
-            if (vertex && vertex.value) {
-                me.refreshVertexLabel(vertex);
+                let parent = me.graph.getDefaultParent();
+                if (cellData.parentId) {
+                    parent = MxgraphUtils.findVerticeById(me.graph, cellData.parentId, null) || parent;
+                }
+                var doc = mx.mxUtils.createXmlDocument();
+                var node = doc.createElement(cellData.type);
+                node.setAttribute("uid", cellData.id);
+                node.setAttribute("label", cellData.label); // Asignar el label recibido
+                var vertex = me.graph.insertVertex(parent, null, node, cellData.x, cellData.y, cellData.width, cellData.height, cellData.style);
+                if (vertex && vertex.value) {
+                    me.refreshVertexLabel(vertex);
+                }
+            } else {
+                // Es un edge (relación)
+                let source = MxgraphUtils.findVerticeById(me.graph, cellData.sourceId, null);
+                let target = MxgraphUtils.findVerticeById(me.graph, cellData.targetId, null);
+                if (source && target) {
+                    let existingEdge = me.graph.getModel().getEdgesBetween(source, target, false);
+                    if (existingEdge.length === 0) {
+                        var doc = mx.mxUtils.createXmlDocument();
+                        node = doc.createElement("relationship"); // Usa la variable previamente declarada
+                        node.setAttribute("uid", cellData.id);
+                        node.setAttribute("label", cellData.label);
+                        cellData.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
+                        let edge = me.graph.insertEdge(me.graph.getDefaultParent(), null, node, source, target, cellData.style);
+                        me.graph.refresh();
+                    }
+                }
             }
         });
         me.graph.refresh();
-        me.isLocalChange = false;
-    }
-});
-
-  me.socket.on('cellConnected', (data) => {
-    console.log('Received cellConnected:', data);
-    if (data.clientId !== me.clientId) {
-        me.isLocalChange = true;
-        let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
-        let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
-        if (source && target) {
-            // Verificar si la conexión ya existe para evitar duplicación
-            let existingEdge = me.graph.getModel().getEdgesBetween(source, target, false);
-            if (existingEdge.length > 0) {
-                console.warn("Edge already exists between source and target. Skipping creation.");
-                me.isLocalChange = false;
-                return;
-            }
-
-            var doc = mx.mxUtils.createXmlDocument();
-            var node = doc.createElement("relationship");
-            node.setAttribute("uid", data.relationshipId);
-            node.setAttribute("label", data.relationshipName);
-            data.properties.forEach(prop => node.setAttribute(prop.name, prop.value));
-            let edge = me.graph.insertEdge(me.graph.getDefaultParent(), null, node, source, target);
-            me.graph.getModel().setStyle(edge, data.style);
-            me.graph.refresh();
-        } else {
-            console.warn("Source or target cell not found in the graph.");
-        }
         me.isLocalChange = false;
     }
 });
@@ -504,37 +513,44 @@ me.socket.on('edgeLabelChanged', (data) => {
                     parentId = evt.properties.parent.value.getAttribute("uid");
                 }
             }
-            for (let i = 0; i < evt.properties.cells.length; i++) {
-                const cell = evt.properties.cells[i];
-                if (!cell.value || !cell.value.attributes) {
-                    return;
-                }
-                let uid = cell.value.getAttribute("uid");
-                if (uid) {
+
+            let cells = evt.properties.cells.map(cell => {
+                let properties = [];
+
+                // Verificar si el cell es un elemento o una relación y obtener las propiedades adecuadas
+                if (cell.value && cell.value.attributes) {
+                    const uid = cell.value.getAttribute("uid");
+
+                    // Buscar el elemento o la relación en el modelo
                     let element = me.props.projectService.findModelElementById(me.currentModel, uid);
+                    if (!element) {
+                        element = me.props.projectService.findModelRelationshipById(me.currentModel, uid);
+                    }
+
+                    // Si se encuentra el elemento o relación, mapear sus propiedades
                     if (element) {
-                        element.parentId = parentId;
-                        element.x = cell.geometry.x;
-                        element.y = cell.geometry.y;
-                        element.width = cell.geometry.width;
-                        element.height = cell.geometry.height;
-                        element.name = cell.value.getAttribute("label");
-                    } else {
-                        console.warn(`Element with UID ${uid} not found in the current model`);
+                        properties = element.properties.map(prop => ({
+                            name: prop.name,
+                            value: prop.value,
+                            type: prop.type,
+                            // Añadir otros atributos de la propiedad si es necesario
+                        }));
                     }
                 }
-            }
-            let cells = evt.properties.cells.map(cell => ({
-                id: cell.value.getAttribute("uid"),
-                type: cell.value.nodeName,
-                x: cell.geometry.x,
-                y: cell.geometry.y,
-                width: cell.geometry.width,
-                height: cell.geometry.height,
-                label: cell.value.getAttribute("label"),
-                style: cell.getStyle(),
-                properties: [] // No incluir propiedades aquí
-            }));
+
+                return {
+                    id: cell.value.getAttribute("uid"),
+                    type: cell.value.nodeName,
+                    x: cell.geometry.x,
+                    y: cell.geometry.y,
+                    width: cell.geometry.width,
+                    height: cell.geometry.height,
+                    label: cell.value.getAttribute("label"),
+                    style: cell.getStyle(),
+                    properties // Incluir las propiedades aquí
+                };
+            });
+
             me.socket.emit('cellAdded', { clientId: me.clientId, cells });
             console.log('Emitted cellAdded:', { clientId: me.clientId, cells });
         }
@@ -542,6 +558,7 @@ me.socket.on('edgeLabelChanged', (data) => {
         me.processException(error);
     }
 });
+
 
   
 graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
@@ -731,7 +748,17 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
               name: attr.name,
               value: attr.value
           }));
-  
+
+              console.log('Emitted cellConnected:', {
+              clientId: me.clientId,
+              sourceId: source.value.getAttribute("uid"),
+              targetId: target.value.getAttribute("uid"),
+              relationshipId: edge.value.getAttribute("uid"),
+              relationshipName: edge.value.getAttribute("label"),
+              style: edge.getStyle(),
+              properties: edgeAttributes
+          });
+
           me.socket.emit('cellConnected', {
               clientId: me.clientId,
               sourceId: source.value.getAttribute("uid"),
@@ -741,15 +768,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
               style: edge.getStyle(),
               properties: edgeAttributes
           });
-          console.log('Emitted cellConnected:', {
-              clientId: me.clientId,
-              sourceId: source.value.getAttribute("uid"),
-              targetId: target.value.getAttribute("uid"),
-              relationshipId: edge.value.getAttribute("uid"),
-              relationshipName: edge.value.getAttribute("label"),
-              style: edge.getStyle(),
-              properties: edgeAttributes
-          });
+
       } catch (error) {
           console.error("something went wrong: ", error);
       }
