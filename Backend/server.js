@@ -87,6 +87,20 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('cursorMoved', data);
 });
 
+socket.on('edgeStyleChanged', (data) => {
+  socket.broadcast.emit('edgeStyleChanged', data);
+});
+
+socket.on('edgeLabelChanged', (data) => {
+  socket.broadcast.emit('edgeLabelChanged', data);
+});
+
+socket.on('cellLabelChanged', (data) => {
+  console.log('cellLabelChanged event received:', data);
+  // Retransmitir el cambio de nombre a todos los demás usuarios conectados
+  socket.broadcast.emit('cellLabelChanged', data);
+});
+
 socket.on('disconnect', () => {
   delete guests[socket.id];
 });

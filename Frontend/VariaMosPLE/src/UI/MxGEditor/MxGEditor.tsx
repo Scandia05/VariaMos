@@ -345,6 +345,27 @@ this.socket.on('cursorMoved', (data) => {
   }
 });
 
+this.socket.on('edgeStyleChanged', (data) => {
+  if (data.clientId !== me.clientId) {
+    let edge = MxgraphUtils.findEdgeById(me.graph, data.edgeId, null);
+    if (edge) {
+      edge.setStyle(data.style);
+      me.graph.refresh();
+    }
+  }
+});
+
+me.socket.on('edgeLabelChanged', (data) => {
+  if (data.clientId !== me.clientId) {
+    let cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
+    if (cell) {
+      cell.value.setAttribute('label', data.label);
+      me.refreshEdgeLabel(cell);
+      me.graph.refresh();
+    }
+  }
+});
+
   }
 
   updateCursor(clientId, userName, x, y) {
@@ -497,6 +518,7 @@ this.socket.on('cursorMoved', (data) => {
                         element.y = cell.geometry.y;
                         element.width = cell.geometry.width;
                         element.height = cell.geometry.height;
+                        element.name = cell.value.getAttribute("label");
                     } else {
                         console.warn(`Element with UID ${uid} not found in the current model`);
                     }
@@ -841,148 +863,154 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
     }
 }
 
-  refreshEdgeStyle(edge: any) {
-    let me = this;
-    let languageDefinition: any =
-      me.props.projectService.getLanguageDefinition(
-        "" + me.currentModel.type
-      );
-    let relationship = me.props.projectService.findModelRelationshipById(me.currentModel, edge.value.getAttribute("uid"));
-    if (languageDefinition.concreteSyntax.relationships) {
-      if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
-        //styles
-        if (languageDefinition.concreteSyntax.relationships[relationship.type].styles) {
-          for (let i = 0; i < languageDefinition.concreteSyntax.relationships[relationship.type].styles.length; i++) {
-            const styleDef = languageDefinition.concreteSyntax.relationships[relationship.type].styles[i];
-            if (!styleDef.linked_property) {
-              edge.style = styleDef.style;
+refreshEdgeStyle(edge: any) {
+  let me = this;
+  let languageDefinition: any = me.props.projectService.getLanguageDefinition("" + me.currentModel.type);
+  let relationship = me.props.projectService.findModelRelationshipById(me.currentModel, edge.value.getAttribute("uid"));
+  if (languageDefinition.concreteSyntax.relationships) {
+    if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
+      //styles
+      if (languageDefinition.concreteSyntax.relationships[relationship.type].styles) {
+        for (let i = 0; i < languageDefinition.concreteSyntax.relationships[relationship.type].styles.length; i++) {
+          const styleDef = languageDefinition.concreteSyntax.relationships[relationship.type].styles[i];
+          if (!styleDef.linked_property) {
+            edge.style = styleDef.style;
+          } else {
+            for (let p = 0; p < relationship.properties.length; p++) {
+              const property = relationship.properties[p];
+              if (property.name == styleDef.linked_property && property.value == styleDef.linked_value) {
+                edge.style = styleDef.style;
+                i = languageDefinition.concreteSyntax.relationships[relationship.type].styles.length;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Emitir el evento a través del socket
+      me.socket.emit('edgeStyleChanged', {
+        clientId: me.clientId,
+        edgeId: edge.value.getAttribute("uid"),
+        style: edge.style
+      });
+
+      //labels  
+      if (edge.children) {
+        for (let index = edge.children.length - 1; index >= 0; index--) {
+          let child = edge.getChildAt(index);
+          child.setVisible(false);
+          //child.removeFromParent(); //no funciona, sigue mostrandolo en pantalla
+        }
+      }
+      if (languageDefinition.concreteSyntax.relationships[relationship.type].labels) {
+        for (let i = 0; i < languageDefinition.concreteSyntax.relationships[relationship.type].labels.length; i++) {
+          const def = languageDefinition.concreteSyntax.relationships[relationship.type].labels[i];
+          let style = ''; // 'fontSize=16;fontColor=#000000;fillColor=#ffffff;strokeColor=#69b630;rounded=1;arcSize=25;strokeWidth=3;';
+          if (def.style) {
+            style = def.style;
+          }
+          let labels = [];
+          if (def.label_fixed) {
+            labels.push("" + def.label_fixed);
+          } else if (def.label_property) {
+            let ls = [];
+            if (Array.isArray(def.label_property)) {
+              ls = def.label_property;
             } else {
-              for (let p = 0; p < relationship.properties.length; p++) {
-                const property = relationship.properties[p];
-                if (property.name == styleDef.linked_property && property.value == styleDef.linked_value) {
-                  edge.style = styleDef.style;
-                  i = languageDefinition.concreteSyntax.relationships[relationship.type].styles.length;
-                  break;
+              ls = [def.label_property];
+            }
+            for (let p = 0; p < relationship.properties.length; p++) {
+              const property = relationship.properties[p];
+              if (ls.includes(property.name)) {
+                if (property.value) {
+                  labels.push("" + property.value);
+                } else {
+                  labels.push("");
                 }
               }
             }
           }
-        }
+          if (labels.length > 0) {
+            let separator = ", "
+            if (def.label_separator) {
+              separator = def.label_separator;
+            }
+            let label = labels.join(separator);
+            let x = 0;
+            let y = 0;
+            let offx = 0;
+            if (def.offset_x) {
+              offx = (def.offset_x / 100);
+            }
+            let offy = 0;
+            if (def.offset_y) {
+              offy = def.offset_y
+            }
+            switch (def.align) {
+              case "left":
+                x = -1 + offx;
+                break;
+              case "right":
+                x = +1 + offx;
+                break;
+            }
+            if (def.offset_x) {
+              offx = def.offset_x
+            }
+            if (def.offset_y) {
+              offy = def.offset_y
+            }
+            var e21 = this.graph.insertVertex(edge, null, label, x, y, 1, 1, style, true);
+            e21.setConnectable(false);
+            this.graph.updateCellSize(e21);
+            // Adds padding (labelPadding not working...)
+            e21.geometry.width += 2;
+            e21.geometry.height += 2;
 
-        //labels  
-        if (edge.children) {
-          for (let index = edge.children.length - 1; index >= 0; index--) {
-            let child = edge.getChildAt(index);
-            child.setVisible(false);
-            //child.removeFromParent(); //no funciona, sigue mostrandolo en pantalla
-          }
-        }
-        if (languageDefinition.concreteSyntax.relationships[relationship.type].labels) {
-          for (let i = 0; i < languageDefinition.concreteSyntax.relationships[relationship.type].labels.length; i++) {
-            const def = languageDefinition.concreteSyntax.relationships[relationship.type].labels[i];
-            let style = ''; // 'fontSize=16;fontColor=#000000;fillColor=#ffffff;strokeColor=#69b630;rounded=1;arcSize=25;strokeWidth=3;';
-            if (def.style) {
-              style = def.style;
-            }
-            let labels = [];
-            if (def.label_fixed) {
-              labels.push("" + def.label_fixed);
-            } else if (def.label_property) {
-              let ls = [];
-              if (Array.isArray(def.label_property)) {
-                ls = def.label_property;
-              } else {
-                ls = [def.label_property];
-              }
-              for (let p = 0; p < relationship.properties.length; p++) {
-                const property = relationship.properties[p];
-                if (ls.includes(property.name)) {
-                  if (property.value) {
-                    labels.push("" + property.value);
-                  } else {
-                    labels.push("");
-                  }
-                }
-              }
-            }
-            if (labels.length > 0) {
-              let separator = ", "
-              if (def.label_separator) {
-                separator = def.label_separator;
-              }
-              let label = labels.join(separator);
-              let x = 0;
-              let y = 0;
-              let offx = 0;
-              if (def.offset_x) {
-                offx = (def.offset_x / 100);
-              }
-              let offy = 0;
-              if (def.offset_y) {
-                offy = def.offset_y
-              }
-              switch (def.align) {
-                case "left":
-                  x = -1 + offx;
-                  break;
-                case "right":
-                  x = +1 + offx;
-                  break;
-              }
-              if (def.offset_x) {
-                offx = def.offset_x
-              }
-              if (def.offset_y) {
-                offy = def.offset_y
-              }
-              var e21 = this.graph.insertVertex(edge, null, label, x, y, 1, 1, style, true);
-              e21.setConnectable(false);
-              this.graph.updateCellSize(e21);
-              // Adds padding (labelPadding not working...)
-              e21.geometry.width += 2;
-              e21.geometry.height += 2;
-
-              offx = 0;
-              e21.geometry.offset = new mx.mxPoint(offx, offy); //offsetx aqui no funciona correctamente cuando la dirección se invierte
-            }
+            offx = 0;
+            e21.geometry.offset = new mx.mxPoint(offx, offy); //offsetx aqui no funciona correctamente cuando la dirección se invierte
           }
         }
       }
     }
   }
+}
 
-  refreshEdgeLabel(edge: any) {
-    let me = this;
-    let languageDefinition: any =
-      me.props.projectService.getLanguageDefinition(
-        "" + me.currentModel.type
-      );
-    let label_property = null;
-    let relationship = me.props.projectService.findModelRelationshipById(me.currentModel, edge.value.getAttribute("uid"));
-    if (languageDefinition.concreteSyntax.relationships) {
-      if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
-        if (languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed) {
-          edge.value.setAttribute("label", languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed);
-          return;
-        }
-        else if (languageDefinition.concreteSyntax.relationships[relationship.type].label_property) {
-          label_property = languageDefinition.concreteSyntax.relationships[relationship.type].label_property;
-          for (let p = 0; p < relationship.properties.length; p++) {
-            const property = relationship.properties[p];
-            if (property.name == label_property) {
-              edge.value.setAttribute("label", property.value);
-              return;
-            }
+refreshEdgeLabel(edge: any) {
+  let me = this;
+  let languageDefinition: any = me.props.projectService.getLanguageDefinition("" + me.currentModel.type);
+  let label_property = null;
+  let relationship = me.props.projectService.findModelRelationshipById(me.currentModel, edge.value.getAttribute("uid"));
+
+  if (languageDefinition.concreteSyntax.relationships) {
+    if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
+      if (languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed) {
+        edge.value.setAttribute("label", languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed);
+        me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed });
+        return;
+      } else if (languageDefinition.concreteSyntax.relationships[relationship.type].label_property) {
+        label_property = languageDefinition.concreteSyntax.relationships[relationship.type].label_property;
+        for (let p = 0; p < relationship.properties.length; p++) {
+          const property = relationship.properties[p];
+          if (property.name == label_property) {
+            edge.value.setAttribute("label", property.value);
+            me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: property.value });
+            return;
           }
         }
       }
     }
-    if (!label_property) {
-      edge.value.setAttribute("label", relationship.name);
-    } else {
-      edge.value.setAttribute("label", "");
-    }
   }
+  
+  if (!label_property) {
+    edge.value.setAttribute("label", relationship.name);
+    me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: relationship.name });
+  } else {
+    edge.value.setAttribute("label", "");
+    me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: "" });
+  }
+}
 
   refreshVertexLabel(vertice: any) {
     let me = this;
