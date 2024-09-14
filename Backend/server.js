@@ -14,7 +14,9 @@ const io = socketIo(server, {
 });
 
 let guestCounter = 1;
+const connectedUsers = {};
 const guests = {};
+const workspaces = {}; // Estructura para almacenar usuarios por workspace
 
 app.use(cors());
 app.use(express.json());
@@ -22,83 +24,123 @@ app.use(express.json());
 io.on('connection', (socket) => {
   console.log(`New client connected: ${socket.id}`);
 
+  // Registrar usuarios como invitados
   socket.on('signUpAsGuest', () => {
     const guestId = guestCounter++;
     guests[socket.id] = guestId;
     socket.emit('guestIdAssigned', { guestId });
-});
+    console.log(`Guest signed up: ${guestId} (Socket ID: ${socket.id})`); // Log cuando se registra un nuevo invitado
+  });
 
+  socket.on('registerUser', (userData) => {
+    connectedUsers[userData.email] = socket.id;
+    console.log(`${userData.email} registrado con socket ID ${socket.id}`);
+  });
+
+  // Gestionar invitaciones para colaborar
+  socket.on('sendInvitation', (data) => {
+    const invitedSocketId = connectedUsers[data.invitedUserEmail];
+    if (invitedSocketId) {
+      io.to(invitedSocketId).emit('invitationReceived', data);
+      console.log(`${data.inviterName} ha invitado a ${data.invitedUserEmail} a colaborar en el workspace ${data.workspaceId}`);
+    } else {
+      console.log(`User ${data.invitedUserEmail} not found or not connected.`);
+    }
+  });
+
+  // Manejar el evento de unirse a un workspace
+  socket.on('joinWorkspace', (data) => {
+    const { clientId, workspaceId } = data;
+    if (!workspaces[workspaceId]) {
+      workspaces[workspaceId] = [];
+    }
+    workspaces[workspaceId].push(socket.id); // Agregar usuario al workspace
+
+    socket.join(workspaceId); // Unir el socket al room correspondiente al workspace
+    console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`); // Log cuando el usuario se une a un workspace
+  });
+  // Emitir eventos solo a los usuarios del mismo workspace
   socket.on('modelCreated', (data) => {
-    console.log(`Model created by ${data.clientId}`);
-    socket.broadcast.emit('modelCreated', data);
+    console.log(`Server received modelCreated:`, data);
+    io.to(data.workspaceId).emit('modelCreated', data);  // Retransmitir a todos en el workspace
   });
-
-  socket.on('modelRenamed', (data) => {
-    console.log(`Model renamed by ${data.clientId} to ${data.newName}`);
-    socket.broadcast.emit('modelRenamed', data);
-  });
-
+  
+  // Manejar la eliminación de un modelo
   socket.on('modelDeleted', (data) => {
-    console.log(`Model deleted by ${data.clientId}`);
-    socket.broadcast.emit('modelDeleted', data);
+    console.log(`Server received modelDeleted:`, data);
+    io.to(data.workspaceId).emit('modelDeleted', data);  // Retransmitir a todos en el workspace
   });
-
+  
+  // Manejar el renombramiento de un modelo
+  socket.on('modelRenamed', (data) => {
+    console.log(`Server received modelRenamed:`, data);
+    io.to(data.workspaceId).emit('modelRenamed', data);  // Retransmitir a todos en el workspace
+  });
+  
+  // Manejar la configuración de un modelo
   socket.on('modelConfigured', (data) => {
-    console.log(`Model configured by ${data.clientId}`);
-    socket.broadcast.emit('modelConfigured', data);
+    console.log(`Server received modelConfigured:`, data);
+    io.to(data.workspaceId).emit('modelConfigured', data);  // Retransmitir a todos en el workspace
   });
-
+  
   socket.on('cellMoved', (data) => {
     console.log('Server received cellMoved:', data);
-    socket.broadcast.emit('cellMoved', data);
+    io.to(data.workspaceId).emit('cellMoved', data); // Emitir solo al workspace correspondiente
   });
 
   socket.on('cellAdded', (data) => {
     console.log('Server received cellAdded:', data);
-    socket.broadcast.emit('cellAdded', data);
+    io.to(data.workspaceId).emit('cellAdded', data);
   });
 
   socket.on('cellRemoved', (data) => {
     console.log('Server received cellRemoved:', data);
-    socket.broadcast.emit('cellRemoved', data);
+    io.to(data.workspaceId).emit('cellRemoved', data);
   });
 
   socket.on('cellConnected', (data) => {
     console.log('Server received cellConnected:', data);
-    socket.broadcast.emit('cellConnected', data);
+    io.to(data.workspaceId).emit('cellConnected', data);
   });
 
   socket.on('labelChanged', (data) => {
     console.log('Server received labelChanged:', data);
-    socket.broadcast.emit('labelChanged', data);
+    io.to(data.workspaceId).emit('labelChanged', data);
   });
 
   socket.on('cellResized', (data) => {
     console.log('Server received cellResized:', data);
-    socket.broadcast.emit('cellResized', data);
+    io.to(data.workspaceId).emit('cellResized', data);
   });
 
   socket.on('propertiesChanged', (data) => {
-    console.log('propertiesChanged received:', data);
-    socket.broadcast.emit('propertiesChanged', data);
+    console.log('Server received propertiesChanged:', data);
+    io.to(data.workspaceId).emit('propertiesChanged', data);
   });
 
   socket.on('cursorMoved', (data) => {
-    socket.broadcast.emit('cursorMoved', data);
-});
+    io.to(data.workspaceId).emit('cursorMoved', data);
+  });
 
-socket.on('edgeStyleChanged', (data) => {
-  socket.broadcast.emit('edgeStyleChanged', data);
-});
+  socket.on('edgeStyleChanged', (data) => {
+    io.to(data.workspaceId).emit('edgeStyleChanged', data);
+  });
 
-socket.on('edgeLabelChanged', (data) => {
-  socket.broadcast.emit('edgeLabelChanged', data);
-});
+  socket.on('edgeLabelChanged', (data) => {
+    io.to(data.workspaceId).emit('edgeLabelChanged', data);
+  });
 
-socket.on('disconnect', () => {
-  delete guests[socket.id];
-});
-
+  // Al desconectarse, eliminar el usuario del workspace correspondiente
+  socket.on('disconnect', () => {
+    // Eliminar el usuario del mapa de usuarios conectados cuando se desconecta
+    for (const email in connectedUsers) {
+      if (connectedUsers[email] === socket.id) {
+        delete connectedUsers[email];
+        break;
+      }
+    }
+    console.log(`Client disconnected: ${socket.id}`);
+  });
 });
 
 const PORT = 4000;
