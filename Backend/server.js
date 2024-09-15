@@ -57,7 +57,10 @@ io.on('connection', (socket) => {
     workspaces[workspaceId].push(socket.id); // Agregar usuario al workspace
 
     socket.join(workspaceId); // Unir el socket al room correspondiente al workspace
-    console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`); // Log cuando el usuario se une a un workspace
+    console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
+     // Log cuando el usuario se une a un workspace
+     // Notificar al cliente que ha unido un workspace
+    io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
   });
   // Emitir eventos solo a los usuarios del mismo workspace
   socket.on('modelCreated', (data) => {

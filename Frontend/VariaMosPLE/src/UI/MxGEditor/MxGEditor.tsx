@@ -46,6 +46,7 @@ export default class MxGEditor extends Component<Props, State> {
   private socket = socket;
   private clientId: string;
   private isLocalChange: boolean = false;
+  private user: string;
   private userName: string;
   private workspaceId: string;
 
@@ -68,7 +69,8 @@ export default class MxGEditor extends Component<Props, State> {
     const userProfile = JSON.parse(sessionStorage.getItem(SignUpKeys.CurrentUserProfile) || localStorage.getItem(SignUpKeys.CurrentUserProfile));
     this.clientId = this.props.projectService.getClientId();
     this.workspaceId = this.props.projectService.getWorkspaceId();
-    this.userName = userProfile ? userProfile.givenName : this.clientId; // Asigna el nombre del usuario o el clientId si no está disponible
+    console.log("MxGEditor initialized with workspaceId:", this.workspaceId);
+    this.user = userProfile ? userProfile.givenName : this.clientId; // Asigna el nombre del usuario o el clientId si no está disponible
     this.userName = userProfile ? userProfile.email : this.clientId;
 
 
@@ -166,6 +168,16 @@ export default class MxGEditor extends Component<Props, State> {
       this.projectService_addUpdateProjectListener
     );
 
+    console.log("MxGEditor mounted with workspaceId:", this.workspaceId);
+    
+    this.socket.on('workspaceJoined', (data) => {
+      // Actualizar el workspaceId cuando el usuario se une a un nuevo workspace
+      if (data.clientId === this.clientId) {
+          console.log(`Joined new workspace: ${data.workspaceId}`);
+          this.workspaceId = data.workspaceId; // Actualizar el workspaceId
+      }
+  });
+
     this.socket.emit('registerUser', { email: this.userName });
 
     this.graphContainerRef.current.addEventListener('mousemove', (e) => {
@@ -173,7 +185,7 @@ export default class MxGEditor extends Component<Props, State> {
         this.socket.emit('cursorMoved', {
           clientId: this.clientId,
           workspaceId: me.workspaceId,
-          userName: this.userName, // Emitir el nombre del usuario
+          user: this.user, // Emitir el nombre del usuario
           x: e.clientX,
           y: e.clientY
         });
@@ -192,7 +204,7 @@ export default class MxGEditor extends Component<Props, State> {
 });
 
     me.socket.on('cellMoved', (data) => {
-      if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+      if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
           me.isLocalChange = true;
           data.cells.forEach(cellData => {
               let cell = MxgraphUtils.findVerticeById(me.graph, cellData.id, null);
@@ -209,7 +221,7 @@ export default class MxGEditor extends Component<Props, State> {
 
   me.socket.on('cellConnected', (data) => {
     console.log('Received cellConnected:', data);
-    if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
         let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
         let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
@@ -233,7 +245,7 @@ export default class MxGEditor extends Component<Props, State> {
 
 me.socket.on('cellAdded', (data) => {
   console.log('Received cellAdded:', data);
-  if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
       me.isLocalChange = true;
       data.cells.forEach(cellData => {
           console.log('Processing cell:', cellData);
@@ -319,7 +331,7 @@ me.socket.on('cellAdded', (data) => {
 
   me.socket.on('cellRemoved', (data) => {
     console.log('Received cellRemoved:', data);
-    if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
         data.cellIds.forEach(cellId => {
             let cell = MxgraphUtils.findVerticeById(me.graph, cellId, null);
@@ -341,7 +353,7 @@ me.socket.on('cellAdded', (data) => {
 me.socket.on('propertiesChanged', (data) => {
   console.log('Received propertiesChanged:', data);
 
-  if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
       me.isLocalChange = true;
 
       // Buscar la celda o conexión (edge) por su ID
@@ -404,7 +416,7 @@ me.socket.on('propertiesChanged', (data) => {
 me.socket.on('cellResized', (data) => {
     console.log('Received cellResized:', data);
 
-    if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
 
         data.cells.forEach(cellData => {
@@ -427,13 +439,13 @@ me.socket.on('cellResized', (data) => {
 });
 
 this.socket.on('cursorMoved', (data) => {
-  if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
-    this.updateCursor(data.clientId, data.userName, data.x, data.y);
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
+    this.updateCursor(data.clientId, data.user, data.x, data.y);
   }
 });
 
 this.socket.on('edgeStyleChanged', (data) => {
-  if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
     let edge = MxgraphUtils.findEdgeById(me.graph, data.edgeId, null);
     if (edge) {
       edge.setStyle(data.style);
@@ -443,7 +455,7 @@ this.socket.on('edgeStyleChanged', (data) => {
 });
 
 me.socket.on('edgeLabelChanged', (data) => {
-  if (data.workspaceId === me.workspaceId && data.clientId !== this.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
     let cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
     if (cell) {
       cell.value.setAttribute('label', data.label);
@@ -464,7 +476,7 @@ this.socket.on('invitationReceived', (data) => {
 
   }
 
-  updateCursor(clientId, userName, x, y) {
+  updateCursor(clientId, user, x, y) {
     // Crear o actualizar la posición del cursor del usuario
     let cursor = document.getElementById(`cursor-${clientId}`);
     let cursorLabel = document.getElementById(`cursor-label-${clientId}`);
@@ -490,7 +502,7 @@ this.socket.on('invitationReceived', (data) => {
       cursorLabel.style.fontSize = '10px';
       cursorLabel.style.zIndex = '1000';
       cursorLabel.style.pointerEvents = 'none';
-      cursorLabel.innerText = userName; // Mostrar el nombre del usuario
+      cursorLabel.innerText = user; // Mostrar el nombre del usuario
   
       document.body.appendChild(cursor);
       document.body.appendChild(cursorLabel);
