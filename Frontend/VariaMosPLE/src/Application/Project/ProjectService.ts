@@ -103,7 +103,7 @@ export default class ProjectService {
   this.socket.on('modelCreated', (data) => {
     console.log('Received modelCreated event:', data); // Log para verificar si el modelo fue recibido
     if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
-      console.log('Processing modelCreated for workspace:', this.workspaceId);
+      console.log(`Processing modelCreated for workspace ${data.workspaceId}`);
       this.handleModelCreated(data.model);
     } else {
       console.log('Ignored modelCreated from clientId:', data.clientId); // Log si el evento es ignorado por alguna razón
@@ -720,7 +720,7 @@ public getSocket() {
 joinWorkspace(workspaceId: string) {
   this.setWorkspaceId(workspaceId);
   this.socket.emit('joinWorkspace', { clientId: this.clientId, workspaceId: this.workspaceId });
-  console.log('Joined workspace:', this.workspaceId);
+  console.log(`joinWorkspace emitted with clientId: ${this.clientId} and workspaceId: ${workspaceId}`);
 }
 
   //This gets called when one uploads a project file

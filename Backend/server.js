@@ -38,33 +38,57 @@ io.on('connection', (socket) => {
   });
 
   // Gestionar invitaciones para colaborar
-  socket.on('sendInvitation', (data) => {
-    const invitedSocketId = connectedUsers[data.invitedUserEmail];
-    if (invitedSocketId) {
-      io.to(invitedSocketId).emit('invitationReceived', data);
-      console.log(`${data.inviterName} ha invitado a ${data.invitedUserEmail} a colaborar en el workspace ${data.workspaceId}`);
-    } else {
-      console.log(`User ${data.invitedUserEmail} not found or not connected.`);
-    }
-  });
+  // Gestionar invitaciones para colaborar
+socket.on('sendInvitation', (data) => {
+  const invitedSocketId = connectedUsers[data.invitedUserEmail];
+  if (invitedSocketId) {
+    io.to(invitedSocketId).emit('invitationReceived', data);
+    console.log(`${data.inviterName} ha invitado a ${data.invitedUserEmail} a colaborar en el workspace ${data.workspaceId}`);
+    
+    // Hacer que el anfitrión también se una al workspace
+    socket.join(data.workspaceId); // El socket del anfitrión se une al workspace
+    console.log(`Host joined workspace ${data.workspaceId} (Socket ID: ${socket.id})`);
+  } else {
+    console.log(`User ${data.invitedUserEmail} not found or not connected.`);
+  }
+});
+
 
   // Manejar el evento de unirse a un workspace
   socket.on('joinWorkspace', (data) => {
     const { clientId, workspaceId } = data;
+
     if (!workspaces[workspaceId]) {
-      workspaces[workspaceId] = [];
+        workspaces[workspaceId] = [];
     }
     workspaces[workspaceId].push(socket.id); // Agregar usuario al workspace
 
     socket.join(workspaceId); // Unir el socket al room correspondiente al workspace
     console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
-     // Log cuando el usuario se une a un workspace
-     // Notificar al cliente que ha unido un workspace
+
+    // Verificar si el anfitrión está unido al workspace
+    const clientsInWorkspace = io.sockets.adapter.rooms.get(workspaceId);
+    if (clientsInWorkspace) {
+        clientsInWorkspace.forEach(socketId => {
+            console.log(`User in workspace: ${socketId}`);
+        });
+    }
+
+    // Notificar al cliente que ha unido un workspace
     io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
-  });
+});
+
   // Emitir eventos solo a los usuarios del mismo workspace
   socket.on('modelCreated', (data) => {
-    console.log(`Server received modelCreated:`, data);
+    console.log('Server received modelCreated from:', data.clientId, 'for workspace:', data.workspaceId);
+    
+    // Verificar si el anfitrión está en el workspace
+    const clientsInWorkspace = io.sockets.adapter.rooms.get(data.workspaceId);
+    if (clientsInWorkspace) {
+        clientsInWorkspace.forEach(socketId => {
+            console.log(`modelCreated is being sent to socket ID: ${socketId}`);
+        });
+    }
     io.to(data.workspaceId).emit('modelCreated', data);  // Retransmitir a todos en el workspace
   });
   
