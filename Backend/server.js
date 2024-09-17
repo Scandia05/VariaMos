@@ -39,6 +39,7 @@ io.on('connection', (socket) => {
 
   // Gestionar invitaciones para colaborar
   // Gestionar invitaciones para colaborar
+// Gestionar invitaciones para colaborar
 socket.on('sendInvitation', (data) => {
   const invitedSocketId = connectedUsers[data.invitedUserEmail];
   if (invitedSocketId) {
@@ -53,10 +54,10 @@ socket.on('sendInvitation', (data) => {
   }
 });
 
-
   // Manejar el evento de unirse a un workspace
   socket.on('joinWorkspace', (data) => {
     const { clientId, workspaceId } = data;
+
     if (!workspaces[workspaceId]) {
         workspaces[workspaceId] = [];
     }
@@ -64,8 +65,16 @@ socket.on('sendInvitation', (data) => {
 
     socket.join(workspaceId); // Unir el socket al room correspondiente al workspace
     console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
-     // Log cuando el usuario se une a un workspace
-     // Notificar al cliente que ha unido un workspace
+
+    // Verificar si el anfitrión está unido al workspace
+    const clientsInWorkspace = io.sockets.adapter.rooms.get(workspaceId);
+    if (clientsInWorkspace) {
+        clientsInWorkspace.forEach(socketId => {
+            console.log(`User in workspace: ${socketId}`);
+        });
+    }
+
+    // Notificar al cliente que ha unido un workspace
     io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
 });
 
