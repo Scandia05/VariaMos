@@ -245,6 +245,7 @@ export default class MxGEditor extends Component<Props, State> {
 
 me.socket.on('cellAdded', (data) => {
   console.log('Received cellAdded:', data);
+  console.log(`Server received cellAdded from client ${data.clientId} in workspace ${data.workspaceId}`);
   if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
       me.isLocalChange = true;
       data.cells.forEach(cellData => {
@@ -439,7 +440,7 @@ me.socket.on('cellResized', (data) => {
 });
 
 this.socket.on('cursorMoved', (data) => {
-  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
+  if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
     this.updateCursor(data.clientId, data.user, data.x, data.y);
   }
 });
@@ -1677,7 +1678,9 @@ handleInviteCollaborator() {
 
 handleAcceptInvitation() {
   if (this.state.inviteData) {
+    console.log(`Joining workspace with ID: ${this.state.inviteData.workspaceId}`);
     this.props.projectService.joinWorkspace(this.state.inviteData.workspaceId);
+    this.workspaceId = this.state.inviteData.workspaceId;  // Asegurarse de que el workspaceId se actualice correctamente
     this.setState({ showInviteModal: false, inviteData: null });
   }
 }
