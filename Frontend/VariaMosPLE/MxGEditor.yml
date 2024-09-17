@@ -1,0 +1,193 @@
+config:
+  target: "http://localhost:4000"
+  phases:
+    - duration: 60
+      arrivalRate: 19
+
+  engines:
+    socketio: {}
+  payload:
+
+scenarios:
+  - engine: "socketio"
+    flow:
+      - emit:
+          channel: "join"
+          data:
+            clientId: "{{ randomString(8) }}"
+            userName: "User{{ randomNumber(1, 100) }}"
+      - think: 1
+
+      - emit:
+          channel: "cellAdded"
+          data:
+            clientId: "{{ randomString(8) }}"
+            cells:
+              - id: "cell1"
+                label: "Node 1"
+                type: "element"
+                x: 100
+                y: 100
+                width: 100
+                height: 100
+                style: "shape=rectangle;fillColor=#FFFFFF;"
+                properties: []
+              - id: "cell2"
+                label: "Node 2"
+                type: "element"
+                x: 200
+                y: 100
+                width: 100
+                height: 100
+                style: "shape=rectangle;fillColor=#FFFFFF;"
+                properties: []
+              - id: "cell3"
+                label: "Node 3"
+                type: "element"
+                x: 300
+                y: 100
+                width: 100
+                height: 100
+                style: "shape=rectangle;fillColor=#FFFFFF;"
+                properties: []
+              - id: "cell4"
+                label: "Node 4"
+                type: "element"
+                x: 400
+                y: 100
+                width: 100
+                height: 100
+                style: "shape=rectangle;fillColor=#FFFFFF;"
+                properties: []
+              - id: "cell5"
+                label: "Node 5"
+                type: "element"
+                x: 500
+                y: 100
+                width: 100
+                height: 100
+                style: "shape=rectangle;fillColor=#FFFFFF;"
+                properties: []
+      - think: 1
+
+      # Mover 3 celdas manualmente
+      - emit:
+          channel: "cellMoved"
+          data:
+            clientId: "{{ randomString(8) }}"
+            cells:
+              - id: "cell1"
+                x: 150
+                y: 150
+                style: "moved-style"
+              - id: "cell2"
+                x: 250
+                y: 150
+                style: "moved-style"
+              - id: "cell3"
+                x: 350
+                y: 150
+                style: "moved-style"
+      - think: 1
+
+      # Conectar 3 celdas
+      - emit:
+          channel: "cellConnected"
+          data:
+            clientId: "{{ randomString(8) }}"
+            sourceId: "cell1"
+            targetId: "cell2"
+            relationshipId: "rel1"
+            relationshipName: "Connection 1"
+            style: "strokeColor=#446E79;strokeWidth=2;"
+            properties:
+              - name: "Type"
+                value: "Connection"
+                type: "String"
+
+      - emit:
+          channel: "cellConnected"
+          data:
+            clientId: "{{ randomString(8) }}"
+            sourceId: "cell2"
+            targetId: "cell3"
+            relationshipId: "rel2"
+            relationshipName: "Connection 2"
+            style: "strokeColor=#446E79;strokeWidth=2;"
+            properties:
+              - name: "Type"
+                value: "Connection"
+                type: "String"
+
+      - emit:
+          channel: "cellConnected"
+          data:
+            clientId: "{{ randomString(8) }}"
+            sourceId: "cell3"
+            targetId: "cell4"
+            relationshipId: "rel3"
+            relationshipName: "Connection 3"
+            style: "strokeColor=#446E79;strokeWidth=2;"
+            properties:
+              - name: "Type"
+                value: "Connection"
+                type: "String"
+      - think: 1
+
+      # Redimensionar 3 celdas 
+      - emit:
+          channel: "cellResized"
+          data:
+            clientId: "{{ randomString(8) }}"
+            cells:
+              - id: "cell1"
+                x: 150
+                y: 150
+                width: 120
+                height: 120
+                style: "resized-style"
+              - id: "cell2"
+                x: 250
+                y: 150
+                width: 130
+                height: 130
+                style: "resized-style"
+              - id: "cell3"
+                x: 350
+                y: 150
+                width: 140
+                height: 140
+                style: "resized-style"
+      - think: 1
+
+      # Cambiar propiedades de 1 celda 
+      - emit:
+          channel: "propertiesChanged"
+          data:
+            clientId: "{{ randomString(8) }}"
+            cellId: "cell1"
+            properties:
+              - name: "Name"
+                value: "Updated Node 1"
+                type: "String"
+      - think: 1
+
+      # Eliminar 3 celdas manualmente
+      - emit:
+          channel: "cellRemoved"
+          data:
+            clientId: "{{ randomString(8) }}"
+            cellIds:
+              - "cell3"
+              - "cell4"
+              - "cell5"
+      - think: 1
+
+      # Mover el cursor
+      - emit:
+          channel: "cursorMoved"
+          data:
+            clientId: "{{ randomString(8) }}"
+            userName: "User{{ randomNumber(1, 100) }}"
+            x: "{{ randomNumber(0, 500) }}"
+            y: "{{ randomNumber(0, 500) }}"

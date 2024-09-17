@@ -7,14 +7,15 @@ import { SignUpKeys, SignUpMessages, SignUpURLs, SignUpUserTypes } from "./SignU
 import env from 'react-dotenv';
 import { gapi } from 'gapi-script';
 import { Config } from "../../Config";
-import io from 'socket.io-client'; // Importar socket.io-client
-
-const socket = io('http://localhost:4000'); // Conectar con el servidor socket.io
+import { v4 as uuidv4 } from 'uuid';
+import socket from "../../Utils/Socket";
+// Conectar con el servidor socket.io
 
 function SignInUp() {
   const [loginProgress, setLoginProgress] = useState(SignUpMessages.Welcome);
   const [hasErrors, setErrors] = useState(false);
   const clientId="364413657269-7h80i7vdc1mbooitbpa9n2s719io1ts2.apps.googleusercontent.com"
+
 
   useEffect(() => {
     const isUserLoggedIn = !!sessionStorage.getItem(SignUpKeys.CurrentUserProfile)
@@ -33,9 +34,10 @@ function SignInUp() {
   }, [])
 
   const signUpAsAGuestHandler = () => {
+    const workspaceId = uuidv4();
     socket.emit('signUpAsGuest');
     socket.on('guestIdAssigned', (data) => {
-      const guestProfile = { email: null, givenName: `Guest ${data.guestId}`, userType: SignUpUserTypes.Guest };
+      const guestProfile = { email: null, givenName: `Guest ${data.guestId}`, userType: SignUpUserTypes.Guest, workspaceId };
       const stringifiedGuestProfile = JSON.stringify(guestProfile);
       sessionStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedGuestProfile);
       localStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedGuestProfile); // Copying the value to LocalStorage to share it between microfrontends
@@ -46,8 +48,9 @@ function SignInUp() {
     });
   }
 
-  const onSuccess = response => {     
-    const userProfile = { ...response.profileObj, userType: SignUpUserTypes.Registered };
+  const onSuccess = response => {  
+    const workspaceId = uuidv4();   
+    const userProfile = { ...response.profileObj, workspaceId, userType: SignUpUserTypes.Registered };
     const stringifiedUserProfile = JSON.stringify(userProfile);
     sessionStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedUserProfile);
     localStorage.setItem(SignUpKeys.CurrentUserProfile, stringifiedUserProfile); // Copying the value to LocalStorage to share it between microfrontends
@@ -58,7 +61,8 @@ function SignInUp() {
 
     axios.post(url, {
       email: userProfile.email,
-      name: userProfile.givenName
+      name: userProfile.givenName,
+      workspaceId: workspaceId 
     }).then(({ data: responseData }) => {
       const { data } = responseData;
       const stringifiedData = JSON.stringify(data);

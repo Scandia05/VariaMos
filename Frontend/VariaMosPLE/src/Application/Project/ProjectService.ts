@@ -1,4 +1,3 @@
-
 import { ProjectInformation } from "../../Domain/ProductLineEngineering/Entities/ProjectInformation";
 import { Adaptation } from "../../Domain/ProductLineEngineering/Entities/Adaptation";
 import { Application } from "../../Domain/ProductLineEngineering/Entities/Application";
@@ -35,13 +34,14 @@ import * as alertify from "alertifyjs";
 import { Buffer } from "buffer";
 import { ConfigurationInformation } from "../../Domain/ProductLineEngineering/Entities/ConfigurationInformation";
 import { v4 as uuidv4 } from 'uuid';
-import io from 'socket.io-client';
+import socket from "../../Utils/Socket";
 
 
 export default class ProjectService {
   private graph: any;
-  private socket: any;
+  private socket= socket;
   private clientId: string;
+  private workspaceId: string;
   private projectManager: ProjectManager = new ProjectManager();
   private languageUseCases: LanguageUseCases = new LanguageUseCases();
   private projectPersistenceUseCases: ProjectPersistenceUseCases = new ProjectPersistenceUseCases();
@@ -92,37 +92,86 @@ export default class ProjectService {
   // }
 
   constructor() {
-    this.socket = io('http://localhost:4000');
     this.clientId = uuidv4();
+    this.workspaceId = uuidv4();  // Genera un workspaceId único para cada usuario
 
     this.socket.on('connect', () => {
-      console.log('Connected to collaboration server with ID:', this.clientId);
-    });
+      console.log('Connected to collaboration server with ID:', this.clientId, 'Workspace ID:', this.workspaceId);
+      this.socket.emit('registerWorkspace', { clientId: this.clientId, workspaceId: this.workspaceId });
+  });
 
-    this.socket.on('modelCreated', (data) => {
-      if (data.clientId !== this.clientId) {
-        this.handleModelCreated(data.model);
-      }
-    });
+  this.socket.on('modelCreated', (data) => {
+    console.log('Received modelCreated event:', data); // Log para verificar si el modelo fue recibido
+    if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log('Processing modelCreated for workspace:', this.workspaceId);
+      this.handleModelCreated(data.model);
+    } else {
+      console.log('Ignored modelCreated from clientId:', data.clientId); // Log si el evento es ignorado por alguna razón
+    }
+  });
 
-    this.socket.on('modelDeleted', (data) => {
-      if (data.clientId !== this.clientId) {
-        this.handleModelDeleted(data.modelId);
-      }
-    });
+  this.socket.on('modelDeleted', (data) => {
+    console.log('Received modelDeleted event:', data); // Log para verificar si el evento fue recibido
+    if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log('Processing modelDeleted for workspace:', this.workspaceId);
+      this.handleModelDeleted(data.modelId);
+    } else {
+      console.log('Ignored modelDeleted from clientId:', data.clientId); // Log si el evento es ignorado
+    }
+  });
 
-    this.socket.on('modelRenamed', (data) => {
-      if (data.clientId !== this.clientId) {
-        this.handleModelRenamed(data.modelId, data.newName);
-      }
-    });
+  this.socket.on('modelRenamed', (data) => {
+    console.log('Received modelRenamed event:', data); // Log para verificar si el evento fue recibido
+    if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log('Processing modelRenamed for workspace:', this.workspaceId);
+      this.handleModelRenamed(data.modelId, data.newName);
+    } else {
+      console.log('Ignored modelRenamed from clientId:', data.clientId); // Log si el evento es ignorado
+    }
+  });
 
-    this.socket.on('modelConfigured', (data) => {
-      if (data.clientId !== this.clientId) {
-        this.handleModelConfigured(data.modelId, data.configuration);
+  this.socket.on('modelConfigured', (data) => {
+    console.log('Received modelConfigured event:', data); // Log para verificar si el evento fue recibido
+    if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log('Processing modelConfigured for workspace:', this.workspaceId);
+      this.handleModelConfigured(data.modelId, data.configuration);
+    } else {
+      console.log('Ignored modelConfigured from clientId:', data.clientId); // Log si el evento es ignorado
+    }
+  });
+
+    this.socket.on('invitationReceived', (data) => {
+      if (data.invitedUserEmail === this.getUserEmail()) {
+          const accept = window.confirm(`${data.inviterName} te ha invitado a colaborar. ¿Aceptar?`);
+          if (accept) {
+              this.joinWorkspace(data.workspaceId);
+          }
       }
-    });
+  });
+
   }
+  
+  getUserEmail(): string | null {
+    const userProfile = JSON.parse(sessionStorage.getItem('CurrentUserProfile') || localStorage.getItem('CurrentUserProfile'));
+    return userProfile ? userProfile.email : null;
+}
+
+setWorkspaceId(id: string) {
+  this.workspaceId = id;
+}
+
+// Método para obtener el workspaceId actual
+getWorkspaceId() {
+  return this.workspaceId;
+}
+
+public emitSocketEvent(event: string, data: any) {
+  this.socket.emit(event, data);
+}
+
+public getSocket() {
+  return this.socket;
+}
 
   public getClientId(): string {
     return this.clientId;
@@ -660,6 +709,19 @@ export default class ProjectService {
 
     return project;
   }
+  
+  inviteUserToWorkspace(invitedUserEmail: string) {
+    this.socket.emit('inviteUser', {
+        workspaceId: this.workspaceId,
+        invitedUserEmail,
+    });
+}
+
+joinWorkspace(workspaceId: string) {
+  this.setWorkspaceId(workspaceId);
+  this.socket.emit('joinWorkspace', { clientId: this.clientId, workspaceId: this.workspaceId });
+  console.log('Joined workspace:', this.workspaceId);
+}
 
   //This gets called when one uploads a project file
   //It takes as the parameters the file one selects from the
@@ -1086,7 +1148,8 @@ export default class ProjectService {
   }
 
   private emitModelCreated(model: Model) {
-    this.socket.emit('modelCreated', { clientId: this.clientId, model });
+    console.log('Emitting modelCreated event:', { clientId: this.clientId, workspaceId: this.workspaceId, model });
+    this.socket.emit('modelCreated', { clientId: this.clientId, workspaceId: this.workspaceId, model });
   }
 
   private handleModelCreated(model: Model) {
@@ -1109,7 +1172,8 @@ export default class ProjectService {
   }
   
   private emitModelDeleted(modelId: string) {
-    this.socket.emit('modelDeleted', { clientId: this.clientId, modelId });
+    console.log('Emitting modelDeleted event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId });
+    this.socket.emit('modelDeleted', { clientId: this.clientId, workspaceId: this.workspaceId, modelId });
   }
 
   private handleModelDeleted(itemId: string) {
@@ -1121,7 +1185,8 @@ export default class ProjectService {
   }
 
   private emitModelRenamed(modelId: string, newName: string) {
-    this.socket.emit('modelRenamed', { clientId: this.clientId, modelId, newName });
+    console.log('Emitting modelRenamed event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, newName });
+    this.socket.emit('modelRenamed', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, newName });
   }
   
   private handleModelRenamed(modelId: string, newName: string) {
@@ -1147,7 +1212,8 @@ export default class ProjectService {
   }
 
   private emitModelConfigured(modelId: string, configuration: Model) {
-    this.socket.emit('modelConfigured', { clientId: this.clientId, modelId, configuration });
+    console.log('Emitting modelConfigured event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, configuration });
+    this.socket.emit('modelConfigured', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, configuration });
   }
 
   private handleModelConfigured(modelId: string, configuration: Model) {

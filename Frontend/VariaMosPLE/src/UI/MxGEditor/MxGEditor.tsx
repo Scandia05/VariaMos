@@ -19,7 +19,8 @@ import Dropdown from 'react-bootstrap/Dropdown';
 import MxProperties from "../MxProperties/MxProperties";
 import * as alertify from "alertifyjs";
 import { SignUpKeys } from '../SignUp/SignUp.constants';
-import io from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid';
+import socket from "../../Utils/Socket";
 
 interface Props {
   projectService: ProjectService;
@@ -32,6 +33,8 @@ interface State {
   contextMenuY: number;
   showPropertiesModal: boolean;
   selectedObject: any;
+  showInviteModal: boolean;
+  inviteData: any;
 }
 
 export default class MxGEditor extends Component<Props, State> {
@@ -40,10 +43,12 @@ export default class MxGEditor extends Component<Props, State> {
   graphContainerRef: any;
   graph?: mxGraph;
   currentModel?: Model;
-  private socket: any;
+  private socket = socket;
   private clientId: string;
   private isLocalChange: boolean = false;
+  private user: string;
   private userName: string;
+  private workspaceId: string;
 
   constructor(props: Props) {
     super(props);
@@ -56,13 +61,18 @@ export default class MxGEditor extends Component<Props, State> {
       showContextMenuElement: false,
       contextMenuX: 0,
       contextMenuY: 0,
-      selectedObject: null
+      selectedObject: null,
+      showInviteModal: false, // Estado para el modal de invitación
+      inviteData: null
     }
-    this.socket = io('http://localhost:4000');
     
     const userProfile = JSON.parse(sessionStorage.getItem(SignUpKeys.CurrentUserProfile) || localStorage.getItem(SignUpKeys.CurrentUserProfile));
     this.clientId = this.props.projectService.getClientId();
-    this.userName = userProfile ? userProfile.givenName : this.clientId; // Asigna el nombre del usuario o el clientId si no está disponible
+    this.workspaceId = this.props.projectService.getWorkspaceId();
+    console.log("MxGEditor initialized with workspaceId:", this.workspaceId);
+    this.user = userProfile ? userProfile.givenName : this.clientId; // Asigna el nombre del usuario o el clientId si no está disponible
+    this.userName = userProfile ? userProfile.email : this.clientId;
+
 
     this.projectService_addNewProductLineListener = this.projectService_addNewProductLineListener.bind(this);
     this.projectService_addSelectedModelListener = this.projectService_addSelectedModelListener.bind(this);
@@ -158,11 +168,24 @@ export default class MxGEditor extends Component<Props, State> {
       this.projectService_addUpdateProjectListener
     );
 
+    console.log("MxGEditor mounted with workspaceId:", this.workspaceId);
+    
+    this.socket.on('workspaceJoined', (data) => {
+      // Actualizar el workspaceId cuando el usuario se une a un nuevo workspace
+      if (data.clientId === this.clientId) {
+          console.log(`Joined new workspace: ${data.workspaceId}`);
+          this.workspaceId = data.workspaceId; // Actualizar el workspaceId
+      }
+  });
+
+    this.socket.emit('registerUser', { email: this.userName });
+
     this.graphContainerRef.current.addEventListener('mousemove', (e) => {
       if (this.clientId) {
         this.socket.emit('cursorMoved', {
           clientId: this.clientId,
-          userName: this.userName, // Emitir el nombre del usuario
+          workspaceId: me.workspaceId,
+          user: this.user, // Emitir el nombre del usuario
           x: e.clientX,
           y: e.clientY
         });
@@ -181,7 +204,7 @@ export default class MxGEditor extends Component<Props, State> {
 });
 
     me.socket.on('cellMoved', (data) => {
-      if (data.clientId !== me.clientId) {
+      if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
           me.isLocalChange = true;
           data.cells.forEach(cellData => {
               let cell = MxgraphUtils.findVerticeById(me.graph, cellData.id, null);
@@ -198,7 +221,7 @@ export default class MxGEditor extends Component<Props, State> {
 
   me.socket.on('cellConnected', (data) => {
     console.log('Received cellConnected:', data);
-    if (data.clientId !== me.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
         let source = MxgraphUtils.findVerticeById(me.graph, data.sourceId, null);
         let target = MxgraphUtils.findVerticeById(me.graph, data.targetId, null);
@@ -222,7 +245,8 @@ export default class MxGEditor extends Component<Props, State> {
 
 me.socket.on('cellAdded', (data) => {
   console.log('Received cellAdded:', data);
-  if (data.clientId !== me.clientId) {
+  console.log(`Server received cellAdded from client ${data.clientId} in workspace ${data.workspaceId}`);
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
       me.isLocalChange = true;
       data.cells.forEach(cellData => {
           console.log('Processing cell:', cellData);
@@ -308,7 +332,7 @@ me.socket.on('cellAdded', (data) => {
 
   me.socket.on('cellRemoved', (data) => {
     console.log('Received cellRemoved:', data);
-    if (data.clientId !== me.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
         data.cellIds.forEach(cellId => {
             let cell = MxgraphUtils.findVerticeById(me.graph, cellId, null);
@@ -330,7 +354,7 @@ me.socket.on('cellAdded', (data) => {
 me.socket.on('propertiesChanged', (data) => {
   console.log('Received propertiesChanged:', data);
 
-  if (data.clientId !== me.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
       me.isLocalChange = true;
 
       // Buscar la celda o conexión (edge) por su ID
@@ -393,7 +417,7 @@ me.socket.on('propertiesChanged', (data) => {
 me.socket.on('cellResized', (data) => {
     console.log('Received cellResized:', data);
 
-    if (data.clientId !== me.clientId) {
+    if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
         me.isLocalChange = true;
 
         data.cells.forEach(cellData => {
@@ -416,13 +440,13 @@ me.socket.on('cellResized', (data) => {
 });
 
 this.socket.on('cursorMoved', (data) => {
-  if (data.clientId !== this.clientId) {
-    this.updateCursor(data.clientId, data.userName, data.x, data.y);
+  if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+    this.updateCursor(data.clientId, data.user, data.x, data.y);
   }
 });
 
 this.socket.on('edgeStyleChanged', (data) => {
-  if (data.clientId !== me.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
     let edge = MxgraphUtils.findEdgeById(me.graph, data.edgeId, null);
     if (edge) {
       edge.setStyle(data.style);
@@ -432,7 +456,7 @@ this.socket.on('edgeStyleChanged', (data) => {
 });
 
 me.socket.on('edgeLabelChanged', (data) => {
-  if (data.clientId !== me.clientId) {
+  if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
     let cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
     if (cell) {
       cell.value.setAttribute('label', data.label);
@@ -442,9 +466,18 @@ me.socket.on('edgeLabelChanged', (data) => {
   }
 });
 
+this.socket.on('invitationReceived', (data) => {
+  if (data.invitedUserEmail === me.userName) {
+    this.setState({
+      showInviteModal: true,
+      inviteData: data
+    });
+  }
+});
+
   }
 
-  updateCursor(clientId, userName, x, y) {
+  updateCursor(clientId, user, x, y) {
     // Crear o actualizar la posición del cursor del usuario
     let cursor = document.getElementById(`cursor-${clientId}`);
     let cursorLabel = document.getElementById(`cursor-label-${clientId}`);
@@ -470,7 +503,7 @@ me.socket.on('edgeLabelChanged', (data) => {
       cursorLabel.style.fontSize = '10px';
       cursorLabel.style.zIndex = '1000';
       cursorLabel.style.pointerEvents = 'none';
-      cursorLabel.innerText = userName; // Mostrar el nombre del usuario
+      cursorLabel.innerText = user; // Mostrar el nombre del usuario
   
       document.body.appendChild(cursor);
       document.body.appendChild(cursorLabel);
@@ -565,7 +598,7 @@ me.socket.on('edgeLabelChanged', (data) => {
               y: cell.geometry.y,
               style: cell.getStyle()
           }));
-          me.socket.emit('cellMoved', { clientId: me.clientId, cells });
+          me.socket.emit('cellMoved', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
           console.log('Emitted cellMoved:', { clientId: me.clientId, cells });
       }
   });
@@ -618,8 +651,8 @@ me.socket.on('edgeLabelChanged', (data) => {
                 };
             });
 
-            me.socket.emit('cellAdded', { clientId: me.clientId, cells });
-            console.log('Emitted cellAdded:', { clientId: me.clientId, cells });
+            me.socket.emit('cellAdded', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
+            console.log('Emitted cellAdded:', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
         }
     } catch (error) {
         me.processException(error);
@@ -640,7 +673,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
             style: cell.getStyle()
         }));
 
-        me.socket.emit('cellResized', { clientId: me.clientId, cells });
+        me.socket.emit('cellResized', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
         console.log('Emitted cellResized:', { clientId: me.clientId, cells });
     }
 });
@@ -803,6 +836,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
 
           me.socket.emit('cellConnected', {
               clientId: me.clientId,
+              workspaceId: me.workspaceId,
               sourceId: source.value.getAttribute("uid"),
               targetId: target.value.getAttribute("uid"),
               relationshipId: edge.value.getAttribute("uid"),
@@ -918,7 +952,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
             }
         }
         graph.removeCells(cells, true);
-        me.socket.emit('cellRemoved', { clientId: me.clientId, cellIds });
+        me.socket.emit('cellRemoved', { clientId: me.clientId, workspaceId: this.workspaceId, cellIds });
         console.log('Emitted cellRemoved:', { clientId: me.clientId, cellIds });
     }
 }
@@ -951,6 +985,7 @@ refreshEdgeStyle(edge: any) {
       // Emitir el evento a través del socket
       me.socket.emit('edgeStyleChanged', {
         clientId: me.clientId,
+        workspaceId: me.workspaceId,
         edgeId: edge.value.getAttribute("uid"),
         style: edge.style
       });
@@ -1067,7 +1102,7 @@ refreshEdgeLabel(edge: any) {
       if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
           if (languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed) {
               edge.value.setAttribute("label", languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed);
-              me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed });
+              me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed });
               return;
           } else if (languageDefinition.concreteSyntax.relationships[relationship.type].label_property) {
               label_property = languageDefinition.concreteSyntax.relationships[relationship.type].label_property;
@@ -1075,7 +1110,7 @@ refreshEdgeLabel(edge: any) {
                   const property = relationship.properties[p];
                   if (property.name == label_property) {
                       edge.value.setAttribute("label", property.value);
-                      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: property.value });
+                      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: property.value });
                       return;
                   }
               }
@@ -1085,10 +1120,10 @@ refreshEdgeLabel(edge: any) {
 
   if (!label_property) {
       edge.value.setAttribute("label", relationship.name);
-      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: relationship.name });
+      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: relationship.name });
   } else {
       edge.value.setAttribute("label", "");
-      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, cellId: edge.value.getAttribute("uid"), label: "" });
+      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: "" });
   }
 }
 
@@ -1605,13 +1640,15 @@ refreshEdgeLabel(edge: any) {
 
         // Emisión de cambios de propiedades para celdas y conexiones
         this.socket.emit('propertiesChanged', { 
-            clientId: this.clientId, 
+            clientId: this.clientId,
+            workspaceId: this.workspaceId, 
             cellId: this.state.selectedObject.id, 
             properties,
             type: this.state.selectedObject.type // Incluimos el tipo para identificar si es una relación (edge) o un vértice
         });
         console.log('Emitted propertiesChanged:', { 
             clientId: this.clientId, 
+            workspaceId: this.workspaceId, 
             cellId: this.state.selectedObject.id, 
             properties,
             type: this.state.selectedObject.type
@@ -1626,6 +1663,28 @@ refreshEdgeLabel(edge: any) {
         }
     }
 }
+
+handleInviteCollaborator() {
+  const invitedUserEmail = prompt('Ingresa el email del usuario que deseas invitar:');
+  if (invitedUserEmail) {
+      this.socket.emit('sendInvitation', {
+          inviterName: this.userName,
+          invitedUserEmail: invitedUserEmail,
+          workspaceId: this.workspaceId, // Obtener el ID del workspace actual
+      });
+      alert(`Invitación enviada a ${invitedUserEmail}`);
+  }
+}
+
+handleAcceptInvitation() {
+  if (this.state.inviteData) {
+    console.log(`Joining workspace with ID: ${this.state.inviteData.workspaceId}`);
+    this.props.projectService.joinWorkspace(this.state.inviteData.workspaceId);
+    this.workspaceId = this.state.inviteData.workspaceId;  // Asegurarse de que el workspaceId se actualice correctamente
+    this.setState({ showInviteModal: false, inviteData: null });
+  }
+}
+
 
   savePropertiesModal() {
     // if (this.currentModel) {
@@ -1688,6 +1747,11 @@ refreshEdgeLabel(edge: any) {
           <a title="Zoom in" onClick={this.btnZoomIn_onClick.bind(this)}><span><img src="/images/editor/zoomIn.png"></img></span></a>{" "}
           <a title="Zoom out" onClick={this.btnZoomOut_onClick.bind(this)}><span><img src="/images/editor/zoomOut.png"></img></span></a>
           <a title="Download image" onClick={this.btnDownloadImage_onClick.bind(this)} style={{display: 'none'}}><i className="bi bi-card-image"></i></a>
+        
+        <Button variant="primary" onClick={this.handleInviteCollaborator.bind(this)}>
+          Invitar a colaborar
+        </Button>
+
         </div>
         {this.renderContexMenu()}
         <div ref={this.graphContainerRef} className="GraphContainer"></div>
@@ -1718,6 +1782,28 @@ refreshEdgeLabel(edge: any) {
             </Modal.Footer>
           </Modal>
         </div>
+        
+        <Modal
+  show={this.state.showInviteModal}
+  onHide={() => this.setState({ showInviteModal: false })}
+>
+  <Modal.Header closeButton>
+    <Modal.Title>Invitación a colaborar</Modal.Title>
+  </Modal.Header>
+  <Modal.Body>
+    {this.state.inviteData && (
+      <p>{this.state.inviteData.inviterName} te ha invitado a colaborar en su workspace. ¿Deseas unirte?</p>
+    )}
+  </Modal.Body>
+  <Modal.Footer>
+    <Button variant="secondary" onClick={() => this.setState({ showInviteModal: false })}>
+      Cancelar
+    </Button>
+    <Button variant="primary" onClick={() => this.handleAcceptInvitation()}>
+      Aceptar
+    </Button>
+  </Modal.Footer>
+</Modal>
       </div>
     );
   }
