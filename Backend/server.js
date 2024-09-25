@@ -3,6 +3,7 @@ const http = require('http');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const socketIo = require('socket.io');
+const { Pool } = require('pg');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,6 +13,25 @@ const io = socketIo(server, {
     methods: ["GET", "POST"]
   }
 });
+
+const pool = new Pool({
+  user: 'adminpg',
+  host: 'app.variamos.com',
+  database: 'VariamosDB',
+  password: 'a=m=8hos.G!-s<*M1G',
+  port: 5433,
+});
+
+const queryDB = async (text, params) => {
+  try {
+    const res = await pool.query(text, params);
+    return res;
+  } catch (err) {
+    console.error('Error ejecutando consulta:', err);
+    throw err;
+  }
+};
+
 
 let guestCounter = 1;
 const connectedUsers = {};
@@ -32,9 +52,19 @@ io.on('connection', (socket) => {
     console.log(`Guest signed up: ${guestId} (Socket ID: ${socket.id})`); // Log cuando se registra un nuevo invitado
   });
 
-  socket.on('registerUser', (userData) => {
-    connectedUsers[userData.email] = socket.id;
-    console.log(`${userData.email} registrado con socket ID ${socket.id}`);
+  socket.on('registerUser', async (userData) => {
+    const query = `INSERT INTO users(email, socket_id)
+                   VALUES($1, $2)
+                   ON CONFLICT (email) DO UPDATE SET socket_id = EXCLUDED.socket_id`;
+    const values = [userData.email, socket.id];
+  
+    try {
+      await queryDB(query, values);
+      connectedUsers[userData.email] = socket.id;
+      console.log(`${userData.email} registrado con socket ID ${socket.id}`);
+    } catch (err) {
+      console.error('Error registrando el usuario:', err);
+    }
   });
 
   // Gestionar invitaciones para colaborar
@@ -55,41 +85,52 @@ socket.on('sendInvitation', (data) => {
 });
 
   // Manejar el evento de unirse a un workspace
-  socket.on('joinWorkspace', (data) => {
+  socket.on('joinWorkspace', async (data) => {
     const { clientId, workspaceId } = data;
-
-    if (!workspaces[workspaceId]) {
-        workspaces[workspaceId] = [];
-    }
-    workspaces[workspaceId].push(socket.id); // Agregar usuario al workspace
-
-    socket.join(workspaceId); // Unir el socket al room correspondiente al workspace
+  
+    // Unir el socket al room correspondiente al workspace
+    socket.join(workspaceId);
     console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
-
+  
+    // Guardar la relación entre el cliente y el workspace en la base de datos
+    const query = `INSERT INTO workspace_users (workspace_id, client_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`;
+    const values = [workspaceId, clientId, socket.id];
+  
+    try { 
+      await queryDB(query, values);
+      console.log(`Client ${clientId} added to workspace ${workspaceId} in the database`);
+    } catch (err) {
+      console.error('Error saving workspace join in the database:', err);
+    }
+  
     // Verificar si el anfitrión está unido al workspace
     const clientsInWorkspace = io.sockets.adapter.rooms.get(workspaceId);
     if (clientsInWorkspace) {
-        clientsInWorkspace.forEach(socketId => {
-            console.log(`User in workspace: ${socketId}`);
-        });
+      clientsInWorkspace.forEach(socketId => {
+        console.log(`User in workspace: ${socketId}`);
+      });
     }
-
+  
     // Notificar al cliente que ha unido un workspace
     io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
-});
-
+  });
+  
   // Emitir eventos solo a los usuarios del mismo workspace
-  socket.on('modelCreated', (data) => {
-    console.log('Server received modelCreated from:', data.clientId, 'for workspace:', data.workspaceId);
-    
-    // Verificar si el anfitrión está en el workspace
-    const clientsInWorkspace = io.sockets.adapter.rooms.get(data.workspaceId);
-    if (clientsInWorkspace) {
-        clientsInWorkspace.forEach(socketId => {
-            console.log(`modelCreated is being sent to socket ID: ${socketId}`);
-        });
+  socket.on('modelCreated', async (data) => {
+    console.log('Server received modelCreated:', data);
+  
+    const query = `INSERT INTO models(id, name, type, data, workspace_id)
+                   VALUES($1, $2, $3, $4, $5)`;
+    const values = [data.model.id, data.model.name, data.model.type, JSON.stringify(data.model), data.workspaceId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Modelo guardado en la base de datos: ${data.model.name}`);
+    } catch (err) {
+      console.error('Error guardando el modelo:', err);
     }
-    io.to(data.workspaceId).emit('modelCreated', data);  // Retransmitir a todos en el workspace
+  
+    io.to(data.workspaceId).emit('modelCreated', data);
   });
   
   // Manejar la eliminación de un modelo
@@ -115,20 +156,42 @@ socket.on('sendInvitation', (data) => {
     io.to(data.workspaceId).emit('cellMoved', data); // Emitir solo al workspace correspondiente
   });
 
-  socket.on('cellAdded', (data) => {
+  socket.on('cellAdded', async (data) => {
     console.log('Server received cellAdded:', data);
+  
+    const query = `INSERT INTO cells(id, model_id, data)
+                   VALUES($1, $2, $3)`;
+    const values = [data.cell.id, data.modelId, JSON.stringify(data.cell)];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Celda guardada en la base de datos: ${data.cell.id}`);
+    } catch (err) {
+      console.error('Error guardando la celda:', err);
+    }
+  
     io.to(data.workspaceId).emit('cellAdded', data);
-    console.log(`Emitting cellAdded to all clients in workspace ${data.workspaceId}`);
-
   });
-
+  
   socket.on('cellRemoved', (data) => {
     console.log('Server received cellRemoved:', data);
     io.to(data.workspaceId).emit('cellRemoved', data);
   });
 
-  socket.on('cellConnected', (data) => {
+  socket.on('cellConnected', async (data) => {
     console.log('Server received cellConnected:', data);
+  
+    const query = `INSERT INTO connections(id, source_id, target_id, model_id, workspace_id)
+                   VALUES($1, $2, $3, $4, $5)`;
+    const values = [uuidv4(), data.sourceId, data.targetId, data.modelId, data.workspaceId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Conexión guardada en la base de datos: ${data.sourceId} -> ${data.targetId}`);
+    } catch (err) {
+      console.error('Error guardando la conexión:', err);
+    }
+  
     io.to(data.workspaceId).emit('cellConnected', data);
   });
 
