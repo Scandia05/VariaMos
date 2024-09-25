@@ -52,19 +52,9 @@ io.on('connection', (socket) => {
     console.log(`Guest signed up: ${guestId} (Socket ID: ${socket.id})`); // Log cuando se registra un nuevo invitado
   });
 
-  socket.on('registerUser', async (userData) => {
-    const query = `INSERT INTO users(email, socket_id)
-                   VALUES($1, $2)
-                   ON CONFLICT (email) DO UPDATE SET socket_id = EXCLUDED.socket_id`;
-    const values = [userData.email, socket.id];
-  
-    try {
-      await queryDB(query, values);
-      connectedUsers[userData.email] = socket.id;
-      console.log(`${userData.email} registrado con socket ID ${socket.id}`);
-    } catch (err) {
-      console.error('Error registrando el usuario:', err);
-    }
+  socket.on('registerUser', (userData) => {
+    connectedUsers[userData.email] = socket.id;
+    console.log(`${userData.email} registrado con socket ID ${socket.id}`);
   });
 
   // Gestionar invitaciones para colaborar
@@ -140,15 +130,37 @@ socket.on('sendInvitation', (data) => {
   });
   
   // Manejar el renombramiento de un modelo
-  socket.on('modelRenamed', (data) => {
+  socket.on('modelRenamed', async (data) => {
     console.log(`Server received modelRenamed:`, data);
-    io.to(data.workspaceId).emit('modelRenamed', data);  // Retransmitir a todos en el workspace
+  
+    const query = `UPDATE models SET name = $1 WHERE id = $2`;
+    const values = [data.newName, data.modelId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Nombre del modelo actualizado en la base de datos: ${data.modelId}`);
+    } catch (err) {
+      console.error('Error actualizando el nombre del modelo:', err);
+    }
+  
+    io.to(data.workspaceId).emit('modelRenamed', data);
   });
   
   // Manejar la configuración de un modelo
-  socket.on('modelConfigured', (data) => {
+  socket.on('modelConfigured', async (data) => {
     console.log(`Server received modelConfigured:`, data);
-    io.to(data.workspaceId).emit('modelConfigured', data);  // Retransmitir a todos en el workspace
+  
+    const query = `UPDATE models SET data = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.configuration), data.modelId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Modelo configurado actualizado en la base de datos: ${data.modelId}`);
+    } catch (err) {
+      console.error('Error actualizando el modelo configurado:', err);
+    }
+  
+    io.to(data.workspaceId).emit('modelConfigured', data);
   });
   
   socket.on('cellMoved', (data) => {
@@ -173,9 +185,20 @@ socket.on('sendInvitation', (data) => {
     io.to(data.workspaceId).emit('cellAdded', data);
   });
   
-  socket.on('cellRemoved', (data) => {
-    console.log('Server received cellRemoved:', data);
-    io.to(data.workspaceId).emit('cellRemoved', data);
+  socket.on('cellMoved', async (data) => {
+    console.log('Server received cellMoved:', data);
+  
+    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.cell), data.cellId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Celda movida actualizada en la base de datos: ${data.cellId}`);
+    } catch (err) {
+      console.error('Error actualizando la celda:', err);
+    }
+  
+    io.to(data.workspaceId).emit('cellMoved', data);
   });
 
   socket.on('cellConnected', async (data) => {
@@ -200,25 +223,72 @@ socket.on('sendInvitation', (data) => {
     io.to(data.workspaceId).emit('labelChanged', data);
   });
 
-  socket.on('cellResized', (data) => {
+  socket.on('cellResized', async (data) => {
     console.log('Server received cellResized:', data);
+  
+    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.cell), data.cellId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Celda redimensionada actualizada en la base de datos: ${data.cellId}`);
+    } catch (err) {
+      console.error('Error actualizando la celda:', err);
+    }
+  
     io.to(data.workspaceId).emit('cellResized', data);
   });
 
-  socket.on('propertiesChanged', (data) => {
+  socket.on('propertiesChanged', async (data) => {
     console.log('Server received propertiesChanged:', data);
+  
+    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.cell), data.cellId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Propiedades de la celda actualizadas en la base de datos: ${data.cellId}`);
+    } catch (err) {
+      console.error('Error actualizando las propiedades de la celda:', err);
+    }
+  
     io.to(data.workspaceId).emit('propertiesChanged', data);
   });
+  
 
   socket.on('cursorMoved', (data) => {
     io.to(data.workspaceId).emit('cursorMoved', data);
   });
 
-  socket.on('edgeStyleChanged', (data) => {
+  socket.on('edgeStyleChanged', async (data) => {
+    console.log('Server received edgeStyleChanged:', data);
+  
+    const query = `UPDATE edges SET style = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.newStyle), data.edgeId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Estilo del borde actualizado en la base de datos: ${data.edgeId}`);
+    } catch (err) {
+      console.error('Error actualizando el estilo del borde:', err);
+    }
+  
     io.to(data.workspaceId).emit('edgeStyleChanged', data);
   });
-
-  socket.on('edgeLabelChanged', (data) => {
+  
+  socket.on('edgeLabelChanged', async (data) => {
+    console.log('Server received edgeLabelChanged:', data);
+  
+    const query = `UPDATE edges SET label = $1 WHERE id = $2`;
+    const values = [data.newLabel, data.edgeId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Etiqueta del borde actualizada en la base de datos: ${data.edgeId}`);
+    } catch (err) {
+      console.error('Error actualizando la etiqueta del borde:', err);
+    }
+  
     io.to(data.workspaceId).emit('edgeLabelChanged', data);
   });
 
