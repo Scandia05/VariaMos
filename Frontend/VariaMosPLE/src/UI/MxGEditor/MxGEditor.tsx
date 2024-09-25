@@ -596,10 +596,11 @@ this.socket.on('invitationReceived', (data) => {
               id: cell.value.getAttribute("uid"),
               x: cell.geometry.x,
               y: cell.geometry.y,
-              style: cell.getStyle()
+              style: cell.getStyle(),
+              modelId: me.props.projectService.getTreeIdItemSelected()
           }));
-          me.socket.emit('cellMoved', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
-          console.log('Emitted cellMoved:', { clientId: me.clientId, cells });
+          me.socket.emit('cellMoved', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cells });
+      console.log('Emitted cellMoved:', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
       }
   });
   
@@ -647,12 +648,12 @@ this.socket.on('invitationReceived', (data) => {
                     height: cell.geometry.height,
                     label: cell.value.getAttribute("label"),
                     style: cell.getStyle(),
+                    modelId:me.props.projectService.getTreeIdItemSelected(),
                     properties // Incluir las propiedades aquí
                 };
             });
-
-            me.socket.emit('cellAdded', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
-            console.log('Emitted cellAdded:', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
+            me.socket.emit('cellAdded', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cells });
+            console.log('Emitted cellAdded:', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cells });
         }
     } catch (error) {
         me.processException(error);
@@ -673,7 +674,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
             style: cell.getStyle()
         }));
 
-        me.socket.emit('cellResized', { clientId: me.clientId, workspaceId: me.workspaceId, cells });
+        me.socket.emit('cellResized', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cells });
         console.log('Emitted cellResized:', { clientId: me.clientId, cells });
     }
 });
@@ -831,7 +832,8 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
               relationshipId: edge.value.getAttribute("uid"),
               relationshipName: edge.value.getAttribute("label"),
               style: edge.getStyle(),
-              properties: edgeAttributes
+              properties: edgeAttributes,
+              modelId: me.props.projectService.getTreeIdItemSelected()
           });
 
           me.socket.emit('cellConnected', {
@@ -842,7 +844,8 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
               relationshipId: edge.value.getAttribute("uid"),
               relationshipName: edge.value.getAttribute("label"),
               style: edge.getStyle(),
-              properties: edgeAttributes
+              properties: edgeAttributes,
+              modelId: me.props.projectService.getTreeIdItemSelected()
           });
 
       } catch (error) {
@@ -952,7 +955,7 @@ graph.addListener(mx.mxEvent.CELLS_RESIZED, function (sender, evt) {
             }
         }
         graph.removeCells(cells, true);
-        me.socket.emit('cellRemoved', { clientId: me.clientId, workspaceId: this.workspaceId, cellIds });
+        me.socket.emit('cellRemoved', { clientId: me.clientId, workspaceId: this.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cellIds });
         console.log('Emitted cellRemoved:', { clientId: me.clientId, cellIds });
     }
 }
@@ -986,6 +989,7 @@ refreshEdgeStyle(edge: any) {
       me.socket.emit('edgeStyleChanged', {
         clientId: me.clientId,
         workspaceId: me.workspaceId,
+        modelId: me.props.projectService.getTreeIdItemSelected(),
         edgeId: edge.value.getAttribute("uid"),
         style: edge.style
       });
@@ -1102,7 +1106,7 @@ refreshEdgeLabel(edge: any) {
       if (languageDefinition.concreteSyntax.relationships[relationship.type]) {
           if (languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed) {
               edge.value.setAttribute("label", languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed);
-              me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed });
+              me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cellId: edge.value.getAttribute("uid"), label: languageDefinition.concreteSyntax.relationships[relationship.type].label_fixed });
               return;
           } else if (languageDefinition.concreteSyntax.relationships[relationship.type].label_property) {
               label_property = languageDefinition.concreteSyntax.relationships[relationship.type].label_property;
@@ -1110,7 +1114,7 @@ refreshEdgeLabel(edge: any) {
                   const property = relationship.properties[p];
                   if (property.name == label_property) {
                       edge.value.setAttribute("label", property.value);
-                      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: property.value });
+                      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cellId: edge.value.getAttribute("uid"), label: property.value });
                       return;
                   }
               }
@@ -1120,10 +1124,10 @@ refreshEdgeLabel(edge: any) {
 
   if (!label_property) {
       edge.value.setAttribute("label", relationship.name);
-      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: relationship.name });
+      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(), cellId: edge.value.getAttribute("uid"), label: relationship.name });
   } else {
       edge.value.setAttribute("label", "");
-      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, cellId: edge.value.getAttribute("uid"), label: "" });
+      me.socket.emit('edgeLabelChanged', { clientId: me.clientId, workspaceId: me.workspaceId, modelId: me.props.projectService.getTreeIdItemSelected(),cellId: edge.value.getAttribute("uid"), label: "" });
   }
 }
 
@@ -1642,14 +1646,16 @@ refreshEdgeLabel(edge: any) {
         this.socket.emit('propertiesChanged', { 
             clientId: this.clientId,
             workspaceId: this.workspaceId, 
-            cellId: this.state.selectedObject.id, 
+            modelId: this.props.projectService.getTreeIdItemSelected(), 
+            cellId: this.state.selectedObject.id,
             properties,
             type: this.state.selectedObject.type // Incluimos el tipo para identificar si es una relación (edge) o un vértice
         });
         console.log('Emitted propertiesChanged:', { 
             clientId: this.clientId, 
             workspaceId: this.workspaceId, 
-            cellId: this.state.selectedObject.id, 
+            modelId: this.props.projectService.getTreeIdItemSelected(), 
+            cellId: this.state.selectedObject.id,
             properties,
             type: this.state.selectedObject.type
         });

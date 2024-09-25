@@ -359,18 +359,18 @@ socket.on('sendInvitation', (data) => {
   socket.on('edgeLabelChanged', async (data) => {
     console.log('Server received edgeLabelChanged:', data);
   
-    // Validar que newLabel y edgeId no sean undefined
-    if (!data.newLabel || !data.edgeId) {
+    // Validar que label y edgeId no sean undefined
+    if (!data.label || !data.cellId) {
       console.error('Etiqueta o ID del borde no proporcionados. No se puede actualizar.');
       return;
     }
   
     const query = `UPDATE testvariamos.edges SET label = $1 WHERE id = $2`;
-    const values = [data.newLabel, data.edgeId];
+    const values = [data.label, data.cellId];
   
     try {
       await queryDB(query, values);
-      console.log(`Etiqueta del borde actualizada en la base de datos. Edge ID: ${data.edgeId}, Nueva etiqueta: ${data.newLabel}`);
+      console.log(`Etiqueta del borde actualizada en la base de datos. Edge ID: ${data.cellId}, Nueva etiqueta: ${data.label}`);
     } catch (err) {
       console.error('Error actualizando la etiqueta del borde:', err);
     }
@@ -378,6 +378,7 @@ socket.on('sendInvitation', (data) => {
     // Emitir el cambio a los demás usuarios del workspace
     io.to(data.workspaceId).emit('edgeLabelChanged', data);
   });
+  
   
   // Al desconectarse, eliminar el usuario del workspace correspondiente
   socket.on('disconnect', () => {
