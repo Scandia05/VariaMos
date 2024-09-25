@@ -52,10 +52,27 @@ io.on('connection', (socket) => {
     console.log(`Guest signed up: ${guestId} (Socket ID: ${socket.id})`); // Log cuando se registra un nuevo invitado
   });
 
-  socket.on('registerUser', (userData) => {
+  socket.on('registerUser', async (userData) => {
     connectedUsers[userData.email] = socket.id;
     console.log(`${userData.email} registrado con socket ID ${socket.id}`);
+  
+    // Guardar la información del usuario en la base de datos
+    const query = `
+      INSERT INTO testvariamos.users (email, socket_id, name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (email)
+      DO UPDATE SET socket_id = EXCLUDED.socket_id, name = EXCLUDED.name
+    `;
+    const values = [userData.email, socket.id, userData.name || ''];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`User ${userData.email} has been saved/updated in the database`);
+    } catch (err) {
+      console.error('Error saving user data in the database:', err);
+    }
   });
+  
 
   // Gestionar invitaciones para colaborar
   // Gestionar invitaciones para colaborar
@@ -83,7 +100,7 @@ socket.on('sendInvitation', (data) => {
     console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
   
     // Guardar la relación entre el cliente y el workspace en la base de datos
-    const query = `INSERT INTO workspace_users (workspace_id, client_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`;
+    const query = `INSERT INTO testvariamos.workspace_users (workspace_id, client_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`;
     const values = [workspaceId, clientId, socket.id];
   
     try { 
@@ -109,7 +126,7 @@ socket.on('sendInvitation', (data) => {
   socket.on('modelCreated', async (data) => {
     console.log('Server received modelCreated:', data);
   
-    const query = `INSERT INTO models(id, name, type, data, workspace_id)
+    const query = `INSERT INTO testvariamos.models(id, name, type, data, workspace_id)
                    VALUES($1, $2, $3, $4, $5)`;
     const values = [data.model.id, data.model.name, data.model.type, JSON.stringify(data.model), data.workspaceId];
   
@@ -124,16 +141,28 @@ socket.on('sendInvitation', (data) => {
   });
   
   // Manejar la eliminación de un modelo
-  socket.on('modelDeleted', (data) => {
+  socket.on('modelDeleted', async (data) => {
     console.log(`Server received modelDeleted:`, data);
+  
+    const query = `DELETE FROM testvariamos.models WHERE id = $1`;
+    const values = [data.modelId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Modelo eliminado de la base de datos: ${data.modelId}`);
+    } catch (err) {
+      console.error('Error eliminando el modelo:', err);
+    }
+  
     io.to(data.workspaceId).emit('modelDeleted', data);  // Retransmitir a todos en el workspace
   });
+  
   
   // Manejar el renombramiento de un modelo
   socket.on('modelRenamed', async (data) => {
     console.log(`Server received modelRenamed:`, data);
   
-    const query = `UPDATE models SET name = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.models SET name = $1 WHERE id = $2`;
     const values = [data.newName, data.modelId];
   
     try {
@@ -150,7 +179,7 @@ socket.on('sendInvitation', (data) => {
   socket.on('modelConfigured', async (data) => {
     console.log(`Server received modelConfigured:`, data);
   
-    const query = `UPDATE models SET data = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.models SET data = $1 WHERE id = $2`;
     const values = [JSON.stringify(data.configuration), data.modelId];
   
     try {
@@ -163,32 +192,10 @@ socket.on('sendInvitation', (data) => {
     io.to(data.workspaceId).emit('modelConfigured', data);
   });
   
-  socket.on('cellMoved', (data) => {
-    console.log('Server received cellMoved:', data);
-    io.to(data.workspaceId).emit('cellMoved', data); // Emitir solo al workspace correspondiente
-  });
-
-  socket.on('cellAdded', async (data) => {
-    console.log('Server received cellAdded:', data);
-  
-    const query = `INSERT INTO cells(id, model_id, data)
-                   VALUES($1, $2, $3)`;
-    const values = [data.cell.id, data.modelId, JSON.stringify(data.cell)];
-  
-    try {
-      await queryDB(query, values);
-      console.log(`Celda guardada en la base de datos: ${data.cell.id}`);
-    } catch (err) {
-      console.error('Error guardando la celda:', err);
-    }
-  
-    io.to(data.workspaceId).emit('cellAdded', data);
-  });
-  
   socket.on('cellMoved', async (data) => {
     console.log('Server received cellMoved:', data);
   
-    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
     const values = [JSON.stringify(data.cell), data.cellId];
   
     try {
@@ -200,11 +207,84 @@ socket.on('sendInvitation', (data) => {
   
     io.to(data.workspaceId).emit('cellMoved', data);
   });
+  
+  socket.on('cellResized', async (data) => {
+    console.log('Server received cellResized:', data);
+  
+    const query = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
+    const values = [JSON.stringify(data.cell), data.cellId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Celda redimensionada actualizada en la base de datos: ${data.cellId}`);
+    } catch (err) {
+      console.error('Error actualizando la celda:', err);
+    }
+  
+    io.to(data.workspaceId).emit('cellResized', data);
+  });
+  
+
+  socket.on('cellAdded', async (data) => {
+    console.log('Server received cellAdded:', data);
+  
+    // Asegurarse de que data.cells sea un array y recorrerlo
+    if (Array.isArray(data.cells)) {
+      for (const cell of data.cells) {
+        const query = `
+          INSERT INTO testvariamos.cells (id, model_id, data)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (id) DO UPDATE
+          SET data = EXCLUDED.data
+        `;
+        const values = [cell.id, data.modelId, JSON.stringify(cell)];
+  
+        try {
+          await queryDB(query, values);
+          console.log(`Cell ${cell.id} has been saved/updated in the database`);
+        } catch (err) {
+          console.error('Error saving cell data in the database:', err);
+        }
+      }
+    } else {
+      console.error('No cells received in the correct format');
+    }
+  
+    // Emitir el evento a todos los usuarios del workspace
+    io.to(data.workspaceId).emit('cellAdded', data);
+    console.log(`Emitting cellAdded to all clients in workspace ${data.workspaceId}`);
+  });
+  
+  
+  socket.on('cellRemoved', async (data) => {
+    console.log('Server received cellRemoved:', data);
+
+    // Asegurarse de que se ha recibido una lista de celdas para eliminar
+    if (data.cellIds && data.cellIds.length > 0) {
+        for (const cellId of data.cellIds) {
+            const query = `DELETE FROM testvariamos.cells WHERE id = $1`;
+            const values = [cellId];
+
+            try {
+                await queryDB(query, values);
+                console.log(`Celda eliminada de la base de datos: ${cellId}`);
+            } catch (err) {
+                console.error(`Error eliminando la celda con ID ${cellId}:`, err);
+            }
+        }
+    } else {
+        console.log('No se encontraron celdas para eliminar');
+    }
+
+    // Emitir el evento de eliminación de celdas a los demás clientes del workspace
+    io.to(data.workspaceId).emit('cellRemoved', data);
+});
+
 
   socket.on('cellConnected', async (data) => {
     console.log('Server received cellConnected:', data);
   
-    const query = `INSERT INTO connections(id, source_id, target_id, model_id, workspace_id)
+    const query = `INSERT INTO testvariamos.connections(id, source_id, target_id, model_id, workspace_id)
                    VALUES($1, $2, $3, $4, $5)`;
     const values = [uuidv4(), data.sourceId, data.targetId, data.modelId, data.workspaceId];
   
@@ -226,7 +306,7 @@ socket.on('sendInvitation', (data) => {
   socket.on('cellResized', async (data) => {
     console.log('Server received cellResized:', data);
   
-    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
     const values = [JSON.stringify(data.cell), data.cellId];
   
     try {
@@ -242,7 +322,7 @@ socket.on('sendInvitation', (data) => {
   socket.on('propertiesChanged', async (data) => {
     console.log('Server received propertiesChanged:', data);
   
-    const query = `UPDATE cells SET data = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
     const values = [JSON.stringify(data.cell), data.cellId];
   
     try {
@@ -263,7 +343,7 @@ socket.on('sendInvitation', (data) => {
   socket.on('edgeStyleChanged', async (data) => {
     console.log('Server received edgeStyleChanged:', data);
   
-    const query = `UPDATE edges SET style = $1 WHERE id = $2`;
+    const query = `UPDATE testvariamos.edges SET style = $1 WHERE id = $2`;
     const values = [JSON.stringify(data.newStyle), data.edgeId];
   
     try {
@@ -279,19 +359,26 @@ socket.on('sendInvitation', (data) => {
   socket.on('edgeLabelChanged', async (data) => {
     console.log('Server received edgeLabelChanged:', data);
   
-    const query = `UPDATE edges SET label = $1 WHERE id = $2`;
+    // Validar que newLabel y edgeId no sean undefined
+    if (!data.newLabel || !data.edgeId) {
+      console.error('Etiqueta o ID del borde no proporcionados. No se puede actualizar.');
+      return;
+    }
+  
+    const query = `UPDATE testvariamos.edges SET label = $1 WHERE id = $2`;
     const values = [data.newLabel, data.edgeId];
   
     try {
       await queryDB(query, values);
-      console.log(`Etiqueta del borde actualizada en la base de datos: ${data.edgeId}`);
+      console.log(`Etiqueta del borde actualizada en la base de datos. Edge ID: ${data.edgeId}, Nueva etiqueta: ${data.newLabel}`);
     } catch (err) {
       console.error('Error actualizando la etiqueta del borde:', err);
     }
   
+    // Emitir el cambio a los demás usuarios del workspace
     io.to(data.workspaceId).emit('edgeLabelChanged', data);
   });
-
+  
   // Al desconectarse, eliminar el usuario del workspace correspondiente
   socket.on('disconnect', () => {
     // Eliminar el usuario del mapa de usuarios conectados cuando se desconecta
