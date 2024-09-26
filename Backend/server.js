@@ -72,7 +72,6 @@ io.on('connection', (socket) => {
       console.error('Error saving user data in the database:', err);
     }
   });
-  
 
   // Gestionar invitaciones para colaborar
   // Gestionar invitaciones para colaborar
@@ -122,6 +121,46 @@ socket.on('sendInvitation', (data) => {
     io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
   });
   
+  // Manejar la creación de proyectos
+  socket.on('projectCreated', async (data) => {
+    console.log('Server received projectCreated:', data);
+
+    const query = `INSERT INTO testvariamos.projects(id, name, workspace_id) VALUES($1, $2, $3)`;
+    const values = [data.project.id, data.project.name, data.workspaceId];
+
+    try {
+        await queryDB(query, values);
+        console.log(`Proyecto guardado en la base de datos: ${data.project.name}`);
+
+        // Emitir el evento de creación de proyecto a todos los usuarios del workspace
+        io.to(data.workspaceId).emit('projectCreated', data);
+
+    } catch (err) {
+        console.error('Error guardando el proyecto en la base de datos:', err);
+    }
+});
+
+// Manejar la creación de productLines
+socket.on('productLineCreated', async (data) => {
+  console.log('Server received productLineCreated:', data);
+
+  const query = `INSERT INTO testvariamos.productlines(id, name, type, domain, project_id, workspace_id) 
+                 VALUES($1, $2, $3, $4, $5, $6)`;
+  const values = [data.productLine.id, data.productLine.name, data.productLine.type, data.productLine.domain, data.projectId, data.workspaceId];
+
+  try {
+      await queryDB(query, values);
+      console.log(`ProductLine guardada en la base de datos: ${data.productLine.name}`);
+
+      // Emitir el evento de creación de ProductLine a todos los usuarios del workspace
+      io.to(data.workspaceId).emit('productLineCreated', data);
+
+  } catch (err) {
+      console.error('Error guardando la ProductLine en la base de datos:', err);
+  }
+});
+
+
   // Emitir eventos solo a los usuarios del mismo workspace
   socket.on('modelCreated', async (data) => {
     console.log('Server received modelCreated:', data);
