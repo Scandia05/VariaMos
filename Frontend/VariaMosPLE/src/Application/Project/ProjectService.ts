@@ -759,6 +759,9 @@ joinWorkspace(workspaceId: string) {
   this.setWorkspaceId(workspaceId);
   this.socket.emit('joinWorkspace', { clientId: this.clientId, workspaceId: this.workspaceId });
   console.log(`joinWorkspace emitted with clientId: ${this.clientId} and workspaceId: ${workspaceId}`);
+  if (this._project && this._project.id === 'my_project_id') { // Aquí puedes verificar que sea el proyecto por defecto
+    this.emitProjectCreated(this._project); // Enviar el proyecto a los otros usuarios
+  }
 }
 
   //This gets called when one uploads a project file
@@ -1023,10 +1026,17 @@ private emitProductLineCreated(projectId: string, productLine: ProductLine) {
 }
 
 private handleProductLineCreated(projectId: string, productLine: ProductLine) {
+  console.log('Adding productLine to the project:', projectId, productLine);
+
   const project = this._project;
   if (project && project.id === projectId) {
-      project.productLines.push(productLine);
-      this.raiseEventNewProductLine(productLine);
+     project.productLines.push(productLine);
+     console.log('ProductLine added, raising event to update UI');
+
+     // Asegurarse de levantar el evento para refrescar la UI
+     this.raiseEventNewProductLine(productLine);
+  } else {
+     console.error('Project not found or ID mismatch');
   }
 }
 
@@ -1198,8 +1208,8 @@ private handleProductLineCreated(projectId: string, productLine: ProductLine) {
   }
 
   private emitModelCreated(model: Model) {
-    console.log('Emitting modelCreated event:', { clientId: this.clientId, workspaceId: this.workspaceId, model });
-    this.socket.emit('modelCreated', { clientId: this.clientId, workspaceId: this.workspaceId, model });
+    console.log('Emitting modelCreated event:', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, model});
+    this.socket.emit('modelCreated', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, model });
   }
 
   private handleModelCreated(model: Model) {
@@ -1222,12 +1232,13 @@ private handleProductLineCreated(projectId: string, productLine: ProductLine) {
   }
   
   private emitModelDeleted(modelId: string) {
-    console.log('Emitting modelDeleted event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, projectId: this._project.id });
+    console.log('Emitting modelDeleted event:', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, modelId });
     this.socket.emit('modelDeleted', {
       clientId: this.clientId,
       workspaceId: this.workspaceId,
-      modelId,
-      projectId: this._project.id
+      projectId: this._project.id, 
+      productLineId: this._project.productLines[this.productLineSelected].id,
+      modelId
     });
   }
 
@@ -1240,13 +1251,14 @@ private handleProductLineCreated(projectId: string, productLine: ProductLine) {
   }
 
   private emitModelRenamed(modelId: string, newName: string) {
-    console.log('Emitting modelRenamed event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, newName, projectId: this._project.id });
+    console.log('Emitting modelRenamed event:', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, modelId, newName,});
     this.socket.emit('modelRenamed', {
       clientId: this.clientId,
       workspaceId: this.workspaceId,
+      projectId: this._project.id, 
+      productLineId: this._project.productLines[this.productLineSelected].id,
       modelId,
       newName,
-      projectId: this._project.id  // ID del proyecto
     });
   }
   
@@ -1296,8 +1308,8 @@ private handleProductLineCreated(projectId: string, productLine: ProductLine) {
   }
   
   private emitModelConfigured(modelId: string, configuration: Model) {
-    console.log('Emitting modelConfigured event:', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, configuration });
-    this.socket.emit('modelConfigured', { clientId: this.clientId, workspaceId: this.workspaceId, modelId, configuration });
+    console.log('Emitting modelConfigured event:', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, modelId, configuration });
+    this.socket.emit('modelConfigured', { clientId: this.clientId, workspaceId: this.workspaceId, projectId: this._project.id, productLineId: this._project.productLines[this.productLineSelected].id, modelId, configuration });
   }
 
   private handleModelConfigured(modelId: string, configuration: Model) {

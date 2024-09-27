@@ -91,35 +91,77 @@ socket.on('sendInvitation', (data) => {
 });
 
   // Manejar el evento de unirse a un workspace
-  socket.on('joinWorkspace', async (data) => {
-    const { clientId, workspaceId } = data;
-  
-    // Unir el socket al room correspondiente al workspace
-    socket.join(workspaceId);
-    console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
-  
-    // Guardar la relación entre el cliente y el workspace en la base de datos
-    const query = `INSERT INTO testvariamos.workspace_users (workspace_id, client_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`;
-    const values = [workspaceId, clientId, socket.id];
-  
-    try { 
-      await queryDB(query, values);
-      console.log(`Client ${clientId} added to workspace ${workspaceId} in the database`);
-    } catch (err) {
-      console.error('Error saving workspace join in the database:', err);
-    }
-  
-    // Verificar si el anfitrión está unido al workspace
-    const clientsInWorkspace = io.sockets.adapter.rooms.get(workspaceId);
-    if (clientsInWorkspace) {
-      clientsInWorkspace.forEach(socketId => {
-        console.log(`User in workspace: ${socketId}`);
+// Manejar el evento de unirse a un workspace
+socket.on('joinWorkspace', async (data) => {
+  const { clientId, workspaceId } = data;
+
+  // Unir el socket al room correspondiente al workspace
+  socket.join(workspaceId);
+  console.log(`Client ${clientId} joined workspace ${workspaceId} (Socket ID: ${socket.id})`);
+
+  // Guardar la relación entre el cliente y el workspace en la base de datos
+  const query = `INSERT INTO testvariamos.workspace_users (workspace_id, client_id, socket_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`;
+  const values = [workspaceId, clientId, socket.id];
+
+  try { 
+    await queryDB(query, values);
+    console.log(`Client ${clientId} added to workspace ${workspaceId} in the database`);
+  } catch (err) {
+    console.error('Error saving workspace join in the database:', err);
+  }
+
+  // Verificar si el proyecto por defecto "My Project" ya existe en el workspace
+  const checkProjectQuery = `SELECT * FROM testvariamos.projects WHERE workspace_id = $1 AND name = $2`;
+  const projectValues = [workspaceId, 'My Project'];
+
+  try {
+    const projectResult = await queryDB(checkProjectQuery, projectValues);
+
+    if (projectResult.rowCount === 0) {
+      // Si no existe, crear el proyecto "My Project"
+      const projectId = uuidv4();
+      const insertProjectQuery = `INSERT INTO testvariamos.projects (id, name, workspace_id) VALUES ($1, $2, $3)`;
+      const insertProjectValues = [projectId, 'My Project', workspaceId];
+      
+      try {
+        await queryDB(insertProjectQuery, insertProjectValues);
+        console.log(`Project "My Project" created for workspace ${workspaceId}`);
+
+        // Emitir el evento de creación del proyecto al usuario que se unió
+        io.to(socket.id).emit('projectCreated', {
+          clientId,
+          workspaceId,
+          project: { id: projectId, name: 'My Project' }
+        });
+      } catch (err) {
+        console.error('Error creating "My Project":', err);
+      }
+    } else {
+      console.log(`Project "My Project" already exists in workspace ${workspaceId}`);
+      
+      // Emitir el evento de proyecto ya existente al usuario
+      io.to(socket.id).emit('projectCreated', {
+        clientId,
+        workspaceId,
+        project: projectResult.rows[0] // Emitimos el proyecto existente
       });
     }
-  
-    // Notificar al cliente que ha unido un workspace
-    io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
-  });
+  } catch (err) {
+    console.error('Error checking for "My Project" in workspace:', err);
+  }
+
+  // Verificar si el anfitrión está unido al workspace
+  const clientsInWorkspace = io.sockets.adapter.rooms.get(workspaceId);
+  if (clientsInWorkspace) {
+    clientsInWorkspace.forEach(socketId => {
+      console.log(`User in workspace: ${socketId}`);
+    });
+  }
+
+  // Notificar al cliente que ha unido un workspace
+  io.to(socket.id).emit('workspaceJoined', { clientId, workspaceId });
+});
+
   
   // Manejar la creación de proyectos
   socket.on('projectCreated', async (data) => {
@@ -165,9 +207,9 @@ socket.on('productLineCreated', async (data) => {
   socket.on('modelCreated', async (data) => {
     console.log('Server received modelCreated:', data);
   
-    const query = `INSERT INTO testvariamos.models(id, name, type, data, workspace_id)
-                   VALUES($1, $2, $3, $4, $5)`;
-    const values = [data.model.id, data.model.name, data.model.type, JSON.stringify(data.model), data.workspaceId];
+    const query = `INSERT INTO testvariamos.models(id, name, type, data, workspace_id, project_id, product_line_id)
+                   VALUES($1, $2, $3, $4, $5, $6, $7)`;
+    const values = [data.model.id, data.model.name, data.model.type, JSON.stringify(data.model), data.workspaceId,data.projectId, data.productLineId];
   
     try {
       await queryDB(query, values);
@@ -267,33 +309,50 @@ socket.on('productLineCreated', async (data) => {
   socket.on('cellAdded', async (data) => {
     console.log('Server received cellAdded:', data);
   
-    // Asegurarse de que data.cells sea un array y recorrerlo
+    // Verificar que `data.cells` sea un array y que cada celda tenga los atributos necesarios
     if (Array.isArray(data.cells)) {
-      for (const cell of data.cells) {
-        const query = `
-          INSERT INTO testvariamos.cells (id, model_id, data)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (id) DO UPDATE
-          SET data = EXCLUDED.data
-        `;
-        const values = [cell.id, data.modelId, JSON.stringify(cell)];
-  
-        try {
-          await queryDB(query, values);
-          console.log(`Cell ${cell.id} has been saved/updated in the database`);
-        } catch (err) {
-          console.error('Error saving cell data in the database:', err);
+        for (const cell of data.cells) {
+            if (!cell.id || !cell.type || !data.modelId || !data.projectId || !data.productLineId) {
+                console.error('Missing necessary attributes for cell:', cell);
+                continue;  // Saltar si faltan atributos clave
+            }
+            
+            // Crear el objeto `cellData` con los atributos mínimos requeridos
+            const cellData = {
+                id: cell.id,
+                type: cell.type,
+                x: cell.x,
+                y: cell.y,
+                width: cell.width,
+                height: cell.height,
+                label: cell.label || '',
+                style: cell.style || '',
+                properties: cell.properties || []
+            };
+
+            const query = `
+                INSERT INTO testvariamos.cells (id, model_id, project_id, product_line_id, data)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (id) DO UPDATE
+                SET data = EXCLUDED.data
+            `;
+            const values = [cell.id, data.modelId, data.projectId, data.productLineId, JSON.stringify(cellData)];
+
+            try {
+                await queryDB(query, values);
+                console.log(`Cell ${cell.id} has been saved/updated in the database`);
+            } catch (err) {
+                console.error('Error saving cell data in the database:', err);
+            }
         }
-      }
     } else {
-      console.error('No cells received in the correct format');
+        console.error('No cells received in the correct format');
     }
-  
+
     // Emitir el evento a todos los usuarios del workspace
     io.to(data.workspaceId).emit('cellAdded', data);
     console.log(`Emitting cellAdded to all clients in workspace ${data.workspaceId}`);
-  });
-  
+});
   
   socket.on('cellRemoved', async (data) => {
     console.log('Server received cellRemoved:', data);
@@ -323,9 +382,9 @@ socket.on('productLineCreated', async (data) => {
   socket.on('cellConnected', async (data) => {
     console.log('Server received cellConnected:', data);
   
-    const query = `INSERT INTO testvariamos.connections(id, source_id, target_id, model_id, workspace_id)
-                   VALUES($1, $2, $3, $4, $5)`;
-    const values = [uuidv4(), data.sourceId, data.targetId, data.modelId, data.workspaceId];
+    const query = `INSERT INTO testvariamos.connections(id, source_id, target_id, model_id, project_id, product_line_id, workspace_id)
+                   VALUES($1, $2, $3, $4, $5, $6, $7)`;
+    const values = [uuidv4(), data.sourceId, data.targetId, data.modelId, data.projectId, data.productLineId, data.workspaceId];
   
     try {
       await queryDB(query, values);
@@ -335,27 +394,6 @@ socket.on('productLineCreated', async (data) => {
     }
   
     io.to(data.workspaceId).emit('cellConnected', data);
-  });
-
-  socket.on('labelChanged', (data) => {
-    console.log('Server received labelChanged:', data);
-    io.to(data.workspaceId).emit('labelChanged', data);
-  });
-
-  socket.on('cellResized', async (data) => {
-    console.log('Server received cellResized:', data);
-  
-    const query = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
-    const values = [JSON.stringify(data.cell), data.cellId];
-  
-    try {
-      await queryDB(query, values);
-      console.log(`Celda redimensionada actualizada en la base de datos: ${data.cellId}`);
-    } catch (err) {
-      console.error('Error actualizando la celda:', err);
-    }
-  
-    io.to(data.workspaceId).emit('cellResized', data);
   });
 
   socket.on('propertiesChanged', async (data) => {
