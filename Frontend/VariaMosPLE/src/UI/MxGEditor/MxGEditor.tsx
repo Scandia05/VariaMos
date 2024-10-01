@@ -373,29 +373,35 @@ me.socket.on('propertiesChanged', (data) => {
 
       if (element) {
         data.properties.forEach(prop => {
-          let property = element.properties.find(p => p.name === prop.name);
-
-          // Manejar el cambio de propiedades y el label
-          if (property) {
-            // Si ya existe la propiedad, se actualiza su valor
-            property.value = prop.value;
+          if (prop.deleted) {
+            // Si la propiedad está marcada como eliminada, removerla
+            element.properties = element.properties.filter(p => p.name !== prop.name);
+            console.log(`propertiesChanged - Property deleted: ${prop.name}`);
           } else {
-            // Si no existe, se añade la nueva propiedad
-            element.properties.push(new Property(
-              prop.name, prop.value, prop.type, prop.options, 
-              prop.linked_property, prop.linked_value, false, 
-              prop.display, prop.comment, prop.possibleValues, 
-              prop.possibleValuesLinks, prop.minCardinality, 
-              prop.maxCardinality, prop.constraint
-            ));
-          }
+            let property = element.properties.find(p => p.name === prop.name);
 
-          // Actualizar las propiedades también en el gráfico (para celdas y conexiones)
-          cell.value.setAttribute(prop.name, prop.value);
+            // Manejar el cambio de propiedades y el label
+            if (property) {
+              // Si ya existe la propiedad, se actualiza su valor
+              property.value = prop.value;
+            } else {
+              // Si no existe, se añade la nueva propiedad
+              element.properties.push(new Property(
+                prop.name, prop.value, prop.type, prop.options, 
+                prop.linked_property, prop.linked_value, false, 
+                prop.display, prop.comment, prop.possibleValues, 
+                prop.possibleValuesLinks, prop.minCardinality, 
+                prop.maxCardinality, prop.constraint
+              ));
+            }
 
-          // Si es el nombre o label, mostrar log para depuración
-          if (prop.name === 'label' || prop.name === 'name') {
-            console.log(`propertiesChanged - Label/Name changed: ${prop.name} = ${prop.value}`);
+            // Actualizar las propiedades también en el gráfico (para celdas y conexiones)
+            cell.value.setAttribute(prop.name, prop.value);
+
+            // Si es el nombre o label, mostrar log para depuración
+            if (prop.name === 'label' || prop.name === 'name') {
+              console.log(`propertiesChanged - Label/Name changed: ${prop.name} = ${prop.value}`);
+            }
           }
         });
 
@@ -405,9 +411,9 @@ me.socket.on('propertiesChanged', (data) => {
           element.name = nameProp.value;
         }
 
-        // Verificar si hay más de una propiedad `label` y eliminar duplicados
+        // Eliminar duplicados de la propiedad 'label'
         element.properties = element.properties.filter((prop, index, self) =>
-          index === self.findIndex((p) => p.name === prop.name && p.name !== 'label') || prop.name === 'label');
+          index === self.findIndex((p) => p.name === prop.name) || prop.name === 'label');
 
         // Refrescar la vista del gráfico
         if (cell.edge) {
@@ -1687,6 +1693,29 @@ pushIfNotExist(array: any, value: any) {
       properties = properties.filter((prop, index, self) =>
         index === self.findIndex((p) => p.name === prop.name));
   
+      // Revisar si alguna propiedad ha sido eliminada (comprobar las propiedades originales y las nuevas)
+      let originalProperties = this.state.selectedObject.originalProperties || [];
+      let deletedProperties = originalProperties.filter(origProp => 
+        !properties.find(prop => prop.name === origProp.name));
+  
+      // Emitir eliminación de propiedades si es necesario
+      if (deletedProperties.length > 0) {
+        deletedProperties.forEach(deletedProp => {
+          this.socket.emit('propertiesChanged', { 
+            clientId: this.clientId,
+            workspaceId: this.workspaceId, 
+            projectId: this.props.projectService.getProject().id, 
+            productLineId: this.props.projectService.getProductLineSelected().id,
+            modelId: this.props.projectService.getTreeIdItemSelected(), 
+            cellId: this.state.selectedObject.id,
+            properties: [{ name: deletedProp.name, deleted: true }], // Marcamos la propiedad como eliminada
+            type: this.state.selectedObject.type
+          });
+  
+          console.log('Emitted propertiesChanged for deleted property:', deletedProp.name);
+        });
+      }
+  
       // Emisión de cambios de propiedades para celdas y conexiones
       this.socket.emit('propertiesChanged', { 
         clientId: this.clientId,
@@ -1695,7 +1724,7 @@ pushIfNotExist(array: any, value: any) {
         productLineId: this.props.projectService.getProductLineSelected().id,
         modelId: this.props.projectService.getTreeIdItemSelected(), 
         cellId: this.state.selectedObject.id,
-        properties,
+        properties, // Propiedades editadas o añadidas
         type: this.state.selectedObject.type // Incluimos el tipo para identificar si es una relación (edge) o un vértice
       });
   
@@ -1709,6 +1738,9 @@ pushIfNotExist(array: any, value: any) {
         properties,
         type: this.state.selectedObject.type
       });
+  
+      // Actualizamos las propiedades originales para la próxima vez que se edite este objeto
+      this.state.selectedObject.originalProperties = [...properties];
     }
   
     // Manejar funciones externas si es necesario
@@ -1720,7 +1752,7 @@ pushIfNotExist(array: any, value: any) {
       }
     }
   }
-    
+      
 handleInviteCollaborator() {
   const invitedUserEmail = prompt('Ingresa el email del usuario que deseas invitar:');
   if (invitedUserEmail) {
