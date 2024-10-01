@@ -411,7 +411,6 @@ socket.on('productLineCreated', async (data) => {
   
     io.to(data.workspaceId).emit('propertiesChanged', data);
   });
-  
 
   socket.on('cursorMoved', (data) => {
     io.to(data.workspaceId).emit('cursorMoved', data);

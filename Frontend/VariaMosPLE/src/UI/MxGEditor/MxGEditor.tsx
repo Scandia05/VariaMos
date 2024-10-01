@@ -250,6 +250,7 @@ me.socket.on('cellAdded', (data) => {
       me.isLocalChange = true;
       data.cells.forEach(cellData => {
           console.log('Processing cell:', cellData);
+          console.log(`socket.on(cellAdded) - Nombre/Label de la celda: ${cellData.label}`);
 
           // Verificar si es un vértice (elemento)
           if (cellData.type !== 'relationship') {
@@ -355,62 +356,76 @@ me.socket.on('propertiesChanged', (data) => {
   console.log('Received propertiesChanged:', data);
 
   if (data.workspaceId === me.workspaceId && data.clientId !== me.clientId) {
-      me.isLocalChange = true;
+    me.isLocalChange = true;
 
-      // Buscar la celda o conexión (edge) por su ID
-      let cell = MxgraphUtils.findVerticeById(me.graph, data.cellId, null);
-      if (!cell) {
-          cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
+    // Buscar la celda o conexión (edge) por su ID
+    let cell = MxgraphUtils.findVerticeById(me.graph, data.cellId, null);
+    if (!cell) {
+      cell = MxgraphUtils.findEdgeById(me.graph, data.cellId, null);
+    }
+
+    if (cell) {
+      // Actualizar las propiedades del modelo
+      let element = me.props.projectService.findModelElementById(me.currentModel, data.cellId);
+      if (!element) {
+        element = me.props.projectService.findModelRelationshipById(me.currentModel, data.cellId);
       }
 
-      if (cell) {
-          // Actualizar las propiedades del modelo
-          let element = me.props.projectService.findModelElementById(me.currentModel, data.cellId);
-          if (!element) {
-              element = me.props.projectService.findModelRelationshipById(me.currentModel, data.cellId);
+      if (element) {
+        data.properties.forEach(prop => {
+          let property = element.properties.find(p => p.name === prop.name);
+
+          // Manejar el cambio de propiedades y el label
+          if (property) {
+            // Si ya existe la propiedad, se actualiza su valor
+            property.value = prop.value;
+          } else {
+            // Si no existe, se añade la nueva propiedad
+            element.properties.push(new Property(
+              prop.name, prop.value, prop.type, prop.options, 
+              prop.linked_property, prop.linked_value, false, 
+              prop.display, prop.comment, prop.possibleValues, 
+              prop.possibleValuesLinks, prop.minCardinality, 
+              prop.maxCardinality, prop.constraint
+            ));
           }
 
-          if (element) {
-              data.properties.forEach(prop => {
-                  let property = element.properties.find(p => p.name === prop.name);
-                  if (property) {
-                      property.value = prop.value;
-                  } else {
-                      element.properties.push(new Property(
-                          prop.name, prop.value, prop.type, prop.options, 
-                          prop.linked_property, prop.linked_value, false, 
-                          prop.display, prop.comment, prop.possibleValues, 
-                          prop.possibleValuesLinks, prop.minCardinality, 
-                          prop.maxCardinality, prop.constraint
-                      ));
-                  }
+          // Actualizar las propiedades también en el gráfico (para celdas y conexiones)
+          cell.value.setAttribute(prop.name, prop.value);
 
-                  // Actualizar las propiedades también en el gráfico (para celdas y conexiones)
-                  cell.value.setAttribute(prop.name, prop.value);
-              });
-
-              // Actualizar el nombre del elemento si se ha cambiado
-              let nameProp = data.properties.find(prop => prop.name === 'name');
-              if (nameProp) {
-                  element.name = nameProp.value;
-              }
-
-              // Refrescar la vista del gráfico
-              if (cell.edge) {
-                  me.refreshEdgeLabel(cell);
-              } else {
-                  me.refreshVertexLabel(cell);
-              }
-              me.graph.refresh();
-
-              // Actualizar el estado si el elemento seleccionado está afectado
-              if (me.state.selectedObject && me.state.selectedObject.id === element.id) {
-                  me.setState({ selectedObject: element });
-              }
+          // Si es el nombre o label, mostrar log para depuración
+          if (prop.name === 'label' || prop.name === 'name') {
+            console.log(`propertiesChanged - Label/Name changed: ${prop.name} = ${prop.value}`);
           }
+        });
+
+        // Actualizar el nombre del elemento si se ha cambiado
+        let nameProp = data.properties.find(prop => prop.name === 'name' || prop.name === 'label');
+        if (nameProp) {
+          element.name = nameProp.value;
+        }
+
+        // Verificar si hay más de una propiedad `label` y eliminar duplicados
+        element.properties = element.properties.filter((prop, index, self) =>
+          index === self.findIndex((p) => p.name === prop.name && p.name !== 'label') || prop.name === 'label');
+
+        // Refrescar la vista del gráfico
+        if (cell.edge) {
+          me.refreshEdgeLabel(cell);
+        } else {
+          me.refreshVertexLabel(cell);
+        }
+
+        me.graph.refresh();
+
+        // Actualizar el estado si el elemento seleccionado está afectado
+        if (me.state.selectedObject && me.state.selectedObject.id === element.id) {
+          me.setState({ selectedObject: element });
+        }
       }
+    }
 
-      me.isLocalChange = false;
+    me.isLocalChange = false;
   }
 });
 
@@ -640,7 +655,7 @@ this.socket.on('invitationReceived', (data) => {
                         }));
                     }
                 }
-
+                console.log(`CELLS_ADDED - Nombre/Label de la celda: ${cell.value.getAttribute("label")}`);
                 return {
                     id: cell.value.getAttribute("uid"),
                     type: cell.value.nodeName,
@@ -1141,54 +1156,55 @@ refreshEdgeLabel(edge: any) {
   }
 }
 
-  refreshVertexLabel(vertice: any) {
-    let me = this;
-    let languageDefinition: any = me.props.projectService.getLanguageDefinition("" + me.currentModel.type);
-    let label_property = null;
-    let uid = vertice.value.getAttribute("uid");
-    let element = me.props.projectService.findModelElementById(me.currentModel, uid);
+refreshVertexLabel(vertice: any) {
+  let me = this;
+  let languageDefinition: any =
+    me.props.projectService.getLanguageDefinition(
+      "" + me.currentModel.type
+    );
+  let label_property = null;
+  let uid=vertice.value.getAttribute("uid");
+  let element = me.props.projectService.findModelElementById(me.currentModel, uid);
+  if(!element){
+    return;
+  }
 
-    if (!element) {
-        console.error(`Element with UID ${uid} not found in the current model`);
+  vertice.value.setAttribute("Name", element.name);
+  for (let i = 0; i < element.properties.length; i++) {
+    const p = element.properties[i];
+    vertice.value.setAttribute(p.name, p.value);
+  }
+
+  if (languageDefinition.concreteSyntax.elements) {
+    if (languageDefinition.concreteSyntax.elements[element.type]) {
+      if (languageDefinition.concreteSyntax.elements[element.type].label_fixed) {
+        vertice.value.setAttribute("label", languageDefinition.concreteSyntax.elements[element.type].label_fixed);
+        console.log(`refreshVertexLabel - Label fixed: ${languageDefinition.concreteSyntax.elements[element.type].label_fixed}`);
         return;
-    }
-
-    if (!element.type) {
-        console.error(`Element with UID ${uid} has no type`);
-        return;
-    }
-
-    vertice.value.setAttribute("Name", element.name);
-    for (let i = 0; i < element.properties.length; i++) {
-        const p = element.properties[i];
-        vertice.value.setAttribute(p.name, p.value);
-    }
-
-    if (languageDefinition.concreteSyntax.elements) {
-        if (languageDefinition.concreteSyntax.elements[element.type]) {
-            if (languageDefinition.concreteSyntax.elements[element.type].label_fixed) {
-                vertice.value.setAttribute("label", languageDefinition.concreteSyntax.elements[element.type].label_fixed);
-                return;
-            } else if (languageDefinition.concreteSyntax.elements[element.type].label_property) {
-                label_property = languageDefinition.concreteSyntax.elements[element.type].label_property;
-                for (let p = 0; p < element.properties.length; p++) {
-                    const property = element.properties[p];
-                    if (property.name == languageDefinition.concreteSyntax.elements[element.type].label_property) {
-                        vertice.value.setAttribute("label", property.value);
-                        return;
-                    }
-                }
-            }
+      }
+      else if (languageDefinition.concreteSyntax.elements[element.type].label_property) {
+        label_property = languageDefinition.concreteSyntax.elements[element.type].label_property;
+        for (let p = 0; p < element.properties.length; p++) {
+          const property = element.properties[p];
+          if (property.name == languageDefinition.concreteSyntax.elements[element.type].label_property) {
+            vertice.value.setAttribute("label", property.value);
+            console.log(`refreshVertexLabel - Label from property: ${property.value}`);
+            return;
+          }
         }
+      }
     }
-    if (!label_property) {
-        vertice.value.setAttribute("label", element.name);
-    } else {
-        vertice.value.setAttribute("label", "");
-    }
+  }
+  if (!label_property) {
+    vertice.value.setAttribute("label", element.name);
+    console.log(`refreshVertexLabel - Label from element name: ${element.name}`);
+  } else {
+    vertice.value.setAttribute("label", "");
+    console.log(`refreshVertexLabel - Label cleared`);
+  }
 }
 
-  pushIfNotExist(array: any, value: any) {
+pushIfNotExist(array: any, value: any) {
     for (let i = 0; i < array.length; i++) {
       const item = array[i];
       if (item == value) {
@@ -1634,56 +1650,77 @@ refreshEdgeLabel(edge: any) {
 
   hidePropertiesModal() {
     this.setState({ showPropertiesModal: false });
-
+  
     if (this.state.selectedObject) {
-        let properties = this.state.selectedObject.properties.map(prop => ({
-            name: prop.name,
-            value: prop.value,
-            type: prop.type,
-            options: prop.options,
-            linked_property: prop.linked_property,
-            linked_value: prop.linked_value,
-            display: prop.display,
-            comment: prop.comment,
-            possibleValues: prop.possibleValues,
-            possibleValuesLinks: prop.possibleValuesLinks,
-            minCardinality: prop.minCardinality,
-            maxCardinality: prop.maxCardinality,
-            constraint: prop.constraint
-        }));
-
-        // Emisión de cambios de propiedades para celdas y conexiones
-        this.socket.emit('propertiesChanged', { 
-            clientId: this.clientId,
-            workspaceId: this.workspaceId, 
-            projectId: this.props.projectService.getProject().id, 
-            productLineId: this.props.projectService.getProductLineSelected().id,
-            modelId: this.props.projectService.getTreeIdItemSelected(), 
-            cellId: this.state.selectedObject.id,
-            properties,
-            type: this.state.selectedObject.type // Incluimos el tipo para identificar si es una relación (edge) o un vértice
+      // Recopilar todas las propiedades que se van a actualizar
+      let properties = this.state.selectedObject.properties.map(prop => ({
+        name: prop.name,
+        value: prop.value,
+        type: prop.type,
+        options: prop.options,
+        linked_property: prop.linked_property,
+        linked_value: prop.linked_value,
+        display: prop.display,
+        comment: prop.comment,
+        possibleValues: prop.possibleValues,
+        possibleValuesLinks: prop.possibleValuesLinks,
+        minCardinality: prop.minCardinality,
+        maxCardinality: prop.maxCardinality,
+        constraint: prop.constraint
+      }));
+  
+      // Asegurar que se esté manejando correctamente el label o name
+      let labelProp = properties.find(prop => prop.name === 'label' || prop.name === 'name');
+      if (!labelProp) {
+        // Si no existe la propiedad label, añadirla desde el selectedObject
+        properties.push({
+          name: 'label',
+          value: this.state.selectedObject.name || 'Unnamed',
+          type: 'String'
         });
-        console.log('Emitted propertiesChanged:', { 
-          clientId: this.clientId,
-          workspaceId: this.workspaceId, 
-          projectId: this.props.projectService.getProject().id, 
-          productLineId: this.props.projectService.getProductLineSelected().id,
-          modelId: this.props.projectService.getTreeIdItemSelected(), 
-          cellId: this.state.selectedObject.id,
-          properties,
-          type: this.state.selectedObject.type
-        });
+      } else {
+        // Si ya existe la propiedad, actualizarla
+        labelProp.value = this.state.selectedObject.name || labelProp.value || 'Unnamed';
+      }
+  
+      // Eliminar cualquier duplicado de 'label' o 'name'
+      properties = properties.filter((prop, index, self) =>
+        index === self.findIndex((p) => p.name === prop.name));
+  
+      // Emisión de cambios de propiedades para celdas y conexiones
+      this.socket.emit('propertiesChanged', { 
+        clientId: this.clientId,
+        workspaceId: this.workspaceId, 
+        projectId: this.props.projectService.getProject().id, 
+        productLineId: this.props.projectService.getProductLineSelected().id,
+        modelId: this.props.projectService.getTreeIdItemSelected(), 
+        cellId: this.state.selectedObject.id,
+        properties,
+        type: this.state.selectedObject.type // Incluimos el tipo para identificar si es una relación (edge) o un vértice
+      });
+  
+      console.log('Emitted propertiesChanged:', { 
+        clientId: this.clientId,
+        workspaceId: this.workspaceId, 
+        projectId: this.props.projectService.getProject().id, 
+        productLineId: this.props.projectService.getProductLineSelected().id,
+        modelId: this.props.projectService.getTreeIdItemSelected(), 
+        cellId: this.state.selectedObject.id,
+        properties,
+        type: this.state.selectedObject.type
+      });
     }
-
+  
+    // Manejar funciones externas si es necesario
     for (let i = 0; i < this.props.projectService.externalFunctions.length; i++) {
-        const efunction = this.props.projectService.externalFunctions[i];
-        if (efunction.id == 510 || efunction.id == 511) {
-            let selectedElementsIds = [this.state.selectedObject.id];
-            this.callExternalFuntionFromIndex(i, selectedElementsIds, null);
-        }
+      const efunction = this.props.projectService.externalFunctions[i];
+      if (efunction.id == 510 || efunction.id == 511) {
+        let selectedElementsIds = [this.state.selectedObject.id];
+        this.callExternalFuntionFromIndex(i, selectedElementsIds, null);
+      }
     }
-}
-
+  }
+    
 handleInviteCollaborator() {
   const invitedUserEmail = prompt('Ingresa el email del usuario que deseas invitar:');
   if (invitedUserEmail) {
