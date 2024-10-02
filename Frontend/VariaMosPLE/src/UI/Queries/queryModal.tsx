@@ -163,7 +163,11 @@ export default function QueryModal({
     const result = await runQuery(projectService, translatorEndpoint, query_object);
     console.log("Result", result);
   
-    if (result) {
+    if (
+      result ||
+      (["sat", "solve", "nsolve"].includes(query_object.operation) &&
+        result === false)
+    ) {
       const appliedConfiguration = {
         queryId: uuidv4(),
         query: query_object,
@@ -171,7 +175,8 @@ export default function QueryModal({
         workspaceId: projectService.getWorkspaceId(),
         result,
       };
-  
+       populateResultsTab(result);
+        setResultsReady(true);
       // Emitir el evento de aplicación de configuración al servidor
       projectService.emitSocketEvent('configurationApplied', appliedConfiguration);
   
@@ -179,8 +184,7 @@ export default function QueryModal({
     }
   
     setQueryInProgress(false);
-    populateResultsTab(result);
-    setResultsReady(true);
+
   };
   
   const clearResults = () => {

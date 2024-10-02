@@ -1,11 +1,9 @@
 /* eslint-disable no-restricted-globals */
 import React, { Component } from "react";
-
 import { IoMdTrash } from 'react-icons/io';
 import { MdEdit } from "react-icons/md";
 import ProjectService from "../../Application/Project/ProjectService";
 import { ConfigurationInformation } from "../../Domain/ProductLineEngineering/Entities/ConfigurationInformation";
-
 
 interface Props {
   className: string,
@@ -23,45 +21,41 @@ class ConfigurationManagement extends Component<Props, State> {
     super(props);
     this.state = {
       configurations: null
-    }
+    };
   }
 
   componentDidMount(): void {
     this.getAllConfigurations();
   }
 
-  // componentDidUpdate(prevProps) {
-  //   // Verificar si una propiedad específica ha cambiado
-  //   if (this.props.reload !== prevProps.reload) {
-  //     if (this.props.reload) {
-  //       this.getAllConfigurations();
-  //     }
-  //   }
-  // }
-
   getAllConfigurations() {
-    this.props.projectService.getAllConfigurations(this.getAllConfigurationsSuccessCallback.bind(this), this.getAllConfigurationsErrorCallback.bind(this));
-  }
-
-  getAllConfigurationsSuccessCallback(e) {
-    let me = this;
-    this.setState({ configurations: e });
-  }
-
-  getAllConfigurationsErrorCallback(e) {
-    let me = this;
+    // Emitir el evento para obtener todas las configuraciones
+    this.props.projectService.socket.emit('getAllConfigurations', {
+      workspaceId: this.props.projectService.workspaceId,
+    });
+  
+    // Listener para recibir las configuraciones desde el servidor
+    this.props.projectService.socket.on('allConfigurationsReceived', (configurations) => {
+      console.log('Configurations received:', configurations); // Verificar qué datos se reciben
+      this.setState({ configurations });
+    });
   }
 
   btnConfiguration_onClic(e) {
     e.preventDefault();
-    let id=e.target.attributes["data-id"].value;
+    let id = e.target.attributes["data-id"].value;
     if (this.props.onConfigurationSelected) {
       this.props.onConfigurationSelected({
         target: this,
         value: id
-      })
-    } 
-    this.props.projectService.applyConfigurationInServer(id);
+      });
+    }
+
+    // Emitir el evento para aplicar la configuración
+    this.props.projectService.socket.emit('configurationApplied', {
+      configurationId: id,
+      workspaceId: this.props.projectService.workspaceId,
+    });
   }
 
   btnEditConfiguration_onClic(e) {
@@ -73,19 +67,24 @@ class ConfigurationManagement extends Component<Props, State> {
     if (!confirm("¿Do you really want to delete the configuration?")) {
       return;
     }
-    let htmlElement=e.target;
+    let htmlElement = e.target;
     while (!htmlElement.attributes["data-id"]) {
-      htmlElement=htmlElement.parentElement;
+      htmlElement = htmlElement.parentElement;
     }
-    let id=htmlElement.attributes["data-id"].value;
+    let id = htmlElement.attributes["data-id"].value;
     if (this.props.onConfigurationSelected) {
       this.props.onConfigurationSelected({
         target: this,
         value: id
-      })
-    } 
-    this.props.projectService.deleteConfigurationInServer(id);
-  } 
+      });
+    }
+
+    // Emitir el evento para eliminar la configuración
+    this.props.projectService.socket.emit('configurationDeleted', {
+      configurationId: id,
+      workspaceId: this.props.projectService.workspaceId,
+    });
+  }
 
   renderProjects() {
     let elements = [];
@@ -93,8 +92,7 @@ class ConfigurationManagement extends Component<Props, State> {
       for (let i = 0; i < this.state.configurations.length; i++) {
         let configurations = this.state.configurations[i];
         const element = (
-          <li>
-            {/* <a title="Change name" href="#" className="link-project" data-id={configurations.id} onClick={this.btnEditConfiguration_onClic.bind(this)}><MdEdit /></a> */}
+          <li key={configurations.id}>
             <a title="Delete" href="#" className="link-project" data-id={configurations.id} onClick={this.btnDeleteConfiguration_onClic.bind(this)}><IoMdTrash /></a>
             <a href="#" className="link-project" data-id={configurations.id} onClick={this.btnConfiguration_onClic.bind(this)}>{configurations.name}</a>
           </li>
@@ -104,7 +102,7 @@ class ConfigurationManagement extends Component<Props, State> {
     }
     return (
       <ul>{elements}</ul>
-    )
+    );
   }
 
   render() {

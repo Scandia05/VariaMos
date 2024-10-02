@@ -39,9 +39,9 @@ import socket from "../../Utils/Socket";
 
 export default class ProjectService {
   private graph: any;
-  private socket= socket;
+  public socket= socket;
   private clientId: string;
-  private workspaceId: string;
+  public workspaceId: string;
   private projectManager: ProjectManager = new ProjectManager();
   private languageUseCases: LanguageUseCases = new LanguageUseCases();
   private projectPersistenceUseCases: ProjectPersistenceUseCases = new ProjectPersistenceUseCases();

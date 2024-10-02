@@ -294,7 +294,28 @@ socket.on('productLineCreated', async (data) => {
       console.error('Error saving configuration in the database:', err);
     }
   });
+
+  socket.on('getAllConfigurations', async (data) => {
+    const { workspaceId } = data;
+    console.log(`Fetching configurations for workspace: ${workspaceId}`);
   
+    const query = 'SELECT * FROM testvariamos.configurations WHERE workspace_id = $1';
+    const values = [workspaceId];
+  
+    try {
+      const result = await queryDB(query, values);
+      const configurations = result.rows;
+      
+      // Asegúrate de loggear las configuraciones antes de enviarlas
+      console.log(`Configurations fetched: ${JSON.stringify(configurations)}`);
+      
+      // Emitir las configuraciones al cliente
+      socket.emit('allConfigurationsReceived', configurations);
+    } catch (err) {
+      console.error('Error fetching configurations:', err);
+    }
+  });
+    
   socket.on('configurationApplied', async (data) => {
     console.log('Server received configurationApplied:', data);
   
