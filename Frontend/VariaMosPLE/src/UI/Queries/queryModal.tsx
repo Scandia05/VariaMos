@@ -31,6 +31,7 @@ import { Query } from "../../Domain/ProductLineEngineering/Entities/Query";
 import ProjectService from "../../Application/Project/ProjectService";
 import QueryResult from "./queryResult";
 import QueryBuilder from "./queryBuilder";
+import { v4 as uuidv4 } from 'uuid';
 
 type QueryModalProps = {
   show: boolean;
@@ -91,6 +92,26 @@ export default function QueryModal({
     localStorage.setItem("currentResults", JSON.stringify(results));
   }, [results]);
 
+  useEffect(() => {
+    // Escuchar eventos de creación y aplicación de configuraciones
+    projectService.getSocket().on('configurationCreated', (data) => {
+      console.log(`Configuration ${data.name} created in the workspace`);
+      // Aquí puedes actualizar el estado local o mostrar un mensaje de éxito
+    });
+  
+    projectService.getSocket().on('configurationApplied', (data) => {
+      console.log(`Configuration applied in the workspace: `, data);
+      // Actualizar el modelo local o recargar la UI para reflejar los cambios
+    });
+  
+    return () => {
+      // Limpiar listeners al desmontar el componente
+      projectService.getSocket().off('configurationCreated');
+      projectService.getSocket().off('configurationApplied');
+    };
+  }, [projectService]);
+  
+
   //Handle setting the value of the endpoint
   const handleSetTranslatorEndpoint = (
     event: React.ChangeEvent<HTMLInputElement>
@@ -139,26 +160,29 @@ export default function QueryModal({
     setResultsReady(false);
     console.log("Submit query", translatorEndpoint, query);
     const query_object = new Query(JSON.parse(query));
-    const result = await runQuery(
-      projectService,
-      translatorEndpoint,
-      query_object
-    );
+    const result = await runQuery(projectService, translatorEndpoint, query_object);
     console.log("Result", result);
-    //Populate the results tab
-    if (
-      result ||
-      (["sat", "solve", "nsolve"].includes(query_object.operation) &&
-        result === false)
-    ) {
-      console.log("Populating results tab with ", result);
-      console.log("Query object", query_object);
-      populateResultsTab(result);
-      setResultsReady(true);
+  
+    if (result) {
+      const appliedConfiguration = {
+        queryId: uuidv4(),
+        query: query_object,
+        projectId: projectService.getProject().id,
+        workspaceId: projectService.getWorkspaceId(),
+        result,
+      };
+  
+      // Emitir el evento de aplicación de configuración al servidor
+      projectService.emitSocketEvent('configurationApplied', appliedConfiguration);
+  
+      console.log("Configuration applied and emitted to the workspace.");
     }
+  
     setQueryInProgress(false);
+    populateResultsTab(result);
+    setResultsReady(true);
   };
-
+  
   const clearResults = () => {
     setResults([]);
     setResultsReady(false);
@@ -170,12 +194,24 @@ export default function QueryModal({
   };
 
   const handleSaveQuery = () => {
+    const newConfiguration = {
+      id: uuidv4(), // Generar un ID único para la nueva configuración
+      name: queryName,
+      query: JSON.parse(query),
+      projectId: projectService.getProject().id,
+      workspaceId: projectService.getWorkspaceId(),
+    };
+  
+    // Guardar la query localmente
     setSavedQueries((prevQueries) => ({
       ...prevQueries,
       [queryName]: JSON.parse(query),
     }));
-    //savedQueries[queryName] = (JSON.parse(query));
-    //setSavedQueries(savedQueries);
+  
+    // Emitir el evento de creación de configuración al servidor
+    projectService.emitSocketEvent('configurationCreated', newConfiguration);
+  
+    console.log(`Configuration ${newConfiguration.name} saved and emitted to the workspace.`);
   };
 
   const queryResult_onVisualize=()=>{

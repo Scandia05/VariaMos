@@ -121,6 +121,23 @@ export default class ProjectService {
     }
 });
 
+this.socket.on('configurationApplied', (data) => {
+  console.log('Received configurationApplied event:', data); // Verificar si el evento fue recibido
+  if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log(`Applying configuration for workspace ${data.workspaceId}`);
+      this.handleConfigurationApplied(data.configurationId);  // Método que aplicará la configuración
+  }
+});
+
+// Escuchar cuando una configuración ha sido eliminada por otro usuario
+this.socket.on('configurationDeleted', (data) => {
+  console.log('Received configurationDeleted event:', data); // Verificar si el evento fue recibido
+  if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
+      console.log(`Processing configuration deletion for workspace ${data.workspaceId}`);
+      this.handleConfigurationDeleted(data.configurationId);  // Método que eliminará la configuración
+  }
+});
+
   this.socket.on('modelCreated', (data) => {
     console.log('Received modelCreated event:', data); // Log para verificar si el modelo fue recibido
     if (data.workspaceId === this.workspaceId && data.clientId !== this.clientId) {
@@ -882,57 +899,83 @@ joinWorkspace(workspaceId: string) {
     this.projectPersistenceUseCases.getAllConfigurations(user, projectInformation, configurationInformation, successCallback, errorCallback);
   }
 
-  applyConfigurationInServer(configurationId: string,): void {
+  applyConfigurationInServer(configurationId: string): void {
     let me = this;
     let user = this.getUser();
     let projectInformation = this.getProjectInformation();
     if (!projectInformation) {
-      return;
+        return;
     }
     let modelId = this.treeIdItemSelected;
     let configurationInformation = new ConfigurationInformation(configurationId, null, modelId, null);
 
     let successCallback = (project: Project) => {
-      let configuredModel: Model = this.findModelById(project, modelId);
-      let targetModel: Model = this.findModelById(me._project, modelId);
-      targetModel.elements = configuredModel.elements;
-      targetModel.relationships = configuredModel.relationships;
-      this.emitModelConfigured(modelId, configuredModel);
-      me.raiseEventUpdateProject(this._project, modelId);
-    }
+        let configuredModel: Model = this.findModelById(project, modelId);
+        let targetModel: Model = this.findModelById(me._project, modelId);
+        targetModel.elements = configuredModel.elements;
+        targetModel.relationships = configuredModel.relationships;
+        
+        this.emitModelConfigured(modelId, configuredModel);
+        me.raiseEventUpdateProject(this._project, modelId);
+
+        // Emitir evento de configuración aplicada para sincronización
+        this.socket.emit('configurationApplied', {
+            clientId: this.clientId,
+            workspaceId: this.workspaceId,
+            configurationId: configurationId
+        });
+    };
 
     let errorCallback = (e) => {
-      alert(JSON.stringify(e));
-    }
+        alert(JSON.stringify(e));
+    };
 
     this.projectPersistenceUseCases.applyConfiguration(user, projectInformation, configurationInformation, successCallback, errorCallback);
-  }
+}
 
-  deleteConfigurationInServer(configurationId: string,): void {
-    let me = this;
-    let user = this.getUser();
-    let projectInformation = this.getProjectInformation();
-    if (!projectInformation) {
+
+deleteConfigurationInServer(configurationId: string): void {
+  let me = this;
+  let user = this.getUser();
+  let projectInformation = this.getProjectInformation();
+  if (!projectInformation) {
       return;
-    }
-    let modelId = this.treeIdItemSelected;
-    let configurationInformation = new ConfigurationInformation(configurationId, null, modelId, null);
-
-    let successCallback = (project: Project) => {
-      let x=0;
-      // let configuredModel: Model = this.findModelById(project, modelId);
-      // let targetModel: Model = this.findModelById(me._project, modelId);
-      // targetModel.elements = configuredModel.elements;
-      // targetModel.relationships = configuredModel.relationships;
-      // me.raiseEventUpdateProject(this._project, modelId);
-    }
-
-    let errorCallback = (e) => {
-      alert(JSON.stringify(e));
-    }
-
-    this.projectPersistenceUseCases.deleteConfiguration(user, projectInformation, configurationInformation, successCallback, errorCallback);
   }
+  let modelId = this.treeIdItemSelected;
+  let configurationInformation = new ConfigurationInformation(configurationId, null, modelId, null);
+
+  let successCallback = (project: Project) => {
+      console.log('Configuration successfully deleted');
+
+      // Emitir evento de configuración eliminada para sincronización
+      this.socket.emit('configurationDeleted', {
+          clientId: this.clientId,
+          workspaceId: this.workspaceId,
+          configurationId: configurationId
+      });
+  };
+
+  let errorCallback = (e) => {
+      alert(JSON.stringify(e));
+  };
+
+  this.projectPersistenceUseCases.deleteConfiguration(user, projectInformation, configurationInformation, successCallback, errorCallback);
+}
+
+handleConfigurationApplied(configurationId: string) {
+  console.log(`Applying configuration ${configurationId} from another user in the same workspace`);
+  
+  // Aplicar la configuración al modelo
+  this.applyConfigurationInServer(configurationId);
+}
+
+handleConfigurationDeleted(configurationId: string) {
+  console.log(`Deleting configuration ${configurationId} from another user in the same workspace`);
+  
+  // Eliminar la configuración localmente
+  this.deleteConfigurationInServer(configurationId);
+}
+
 
   saveProject(): void {
     this.projectManager.saveProject(this._project);

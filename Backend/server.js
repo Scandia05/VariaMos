@@ -272,6 +272,44 @@ socket.on('productLineCreated', async (data) => {
   
     io.to(data.workspaceId).emit('modelConfigured', data);
   });
+
+  socket.on('configurationCreated', async (data) => {
+    console.log('Server received configurationCreated:', data);
+  
+    const query = `
+      INSERT INTO testvariamos.configurations (id, name, query, project_id, workspace_id)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (id) DO UPDATE
+      SET name = EXCLUDED.name, query = EXCLUDED.query
+    `;
+    const values = [data.id, data.name, JSON.stringify(data.query), data.projectId, data.workspaceId];
+  
+    try {
+      await queryDB(query, values);
+      console.log(`Configuration ${data.name} saved/updated in the database`);
+  
+      // Emitir el evento a todos los usuarios del workspace
+      io.to(data.workspaceId).emit('configurationCreated', data);
+    } catch (err) {
+      console.error('Error saving configuration in the database:', err);
+    }
+  });
+  
+  socket.on('configurationApplied', async (data) => {
+    console.log('Server received configurationApplied:', data);
+  
+    // Emitir el evento a todos los usuarios del workspace
+    io.to(data.workspaceId).emit('configurationApplied', data);
+  });
+
+  // Manejar la eliminación de configuraciones en el workspace
+socket.on('configurationDeleted', async (data) => {
+  console.log('Server received configurationDeleted:', data);
+
+  // Emitir el evento a todos los usuarios del workspace
+  io.to(data.workspaceId).emit('configurationDeleted', data);
+});
+
   
   socket.on('cellMoved', async (data) => {
     console.log('Server received cellMoved:', data);
@@ -399,35 +437,33 @@ socket.on('productLineCreated', async (data) => {
   socket.on('propertiesChanged', async (data) => {
     console.log('Server received propertiesChanged:', data);
   
-    // Primero, obtener la celda actual de la base de datos para actualizarla
-    const queryGetCell = `SELECT data FROM testvariamos.cells WHERE id = $1`;
-    const valuesGetCell = [data.cellId];
-    
+    // Emitir el cambio a los demás usuarios del workspace inmediatamente, sin esperar a la base de datos
+    io.to(data.workspaceId).emit('propertiesChanged', data);
+  
+    // Intentar realizar la actualización en la base de datos
     try {
+      const queryGetCell = `SELECT data FROM testvariamos.cells WHERE id = $1`;
+      const valuesGetCell = [data.cellId];
+      
       const cellResult = await queryDB(queryGetCell, valuesGetCell);
+  
       if (cellResult.rows.length > 0) {
         let cellData = JSON.parse(cellResult.rows[0].data);
   
         // Actualizar o eliminar propiedades en `cellData`
         data.properties.forEach(prop => {
           if (prop.deleted) {
-            // Si la propiedad está marcada como eliminada, la eliminamos de `cellData.properties`
             cellData.properties = cellData.properties.filter(p => p.name !== prop.name);
-            console.log(`Property deleted: ${prop.name} for cell ${data.cellId}`);
           } else {
-            // Buscar si la propiedad ya existe
             const existingPropIndex = cellData.properties.findIndex(p => p.name === prop.name);
             if (existingPropIndex !== -1) {
-              // Si ya existe, actualizarla
               cellData.properties[existingPropIndex].value = prop.value;
             } else {
-              // Si no existe, agregar la nueva propiedad
               cellData.properties.push(prop);
             }
           }
         });
   
-        // Actualizar la celda en la base de datos con las propiedades modificadas
         const queryUpdateCell = `UPDATE testvariamos.cells SET data = $1 WHERE id = $2`;
         const valuesUpdateCell = [JSON.stringify(cellData), data.cellId];
   
@@ -437,9 +473,6 @@ socket.on('productLineCreated', async (data) => {
         } catch (err) {
           console.error('Error actualizando las propiedades de la celda:', err);
         }
-  
-        // Emitir el cambio a los demás usuarios del workspace
-        io.to(data.workspaceId).emit('propertiesChanged', data);
       } else {
         console.log('Celda no encontrada en la base de datos para actualizar las propiedades.');
       }
@@ -448,7 +481,6 @@ socket.on('productLineCreated', async (data) => {
     }
   });
   
-
   socket.on('cursorMoved', (data) => {
     io.to(data.workspaceId).emit('cursorMoved', data);
   });
